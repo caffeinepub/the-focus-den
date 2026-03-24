@@ -1,0 +1,125 @@
+@import url("https://fonts.googleapis.com/css2?family=Nunito:wght@400;500;600;700;800;900&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --radius: 1rem;
+
+    /* Warm cream background #F5EFE6 */
+    --background: 0.951 0.02 75;
+    /* Deep brown #2F241B */
+    --foreground: 0.22 0.04 55;
+    /* Creamy card #FAF4EB */
+    --card: 0.969 0.018 78;
+    --card-foreground: 0.22 0.04 55;
+    /* Popover */
+    --popover: 0.969 0.018 78;
+    --popover-foreground: 0.22 0.04 55;
+    /* Sage green primary #6F8F4E */
+    --primary: 0.574 0.1 135;
+    --primary-foreground: 0.97 0.01 90;
+    /* Beige secondary */
+    --secondary: 0.907 0.025 75;
+    --secondary-foreground: 0.22 0.04 55;
+    /* Muted */
+    --muted: 0.92 0.02 75;
+    --muted-foreground: 0.44 0.04 55;
+    /* Accent wood #8B6342 */
+    --accent: 0.907 0.025 75;
+    --accent-foreground: 0.22 0.04 55;
+    /* Destructive warning red #C0392B */
+    --destructive: 0.48 0.19 27;
+    --destructive-foreground: 0.97 0.01 90;
+    /* Borders #DCCDBB */
+    --border: 0.836 0.03 75;
+    --input: 0.836 0.03 75;
+    --ring: 0.574 0.1 135;
+    /* Charts */
+    --chart-1: 0.574 0.1 135;
+    --chart-2: 0.762 0.12 75;
+    --chart-3: 0.475 0.07 55;
+    --chart-4: 0.48 0.19 27;
+    --chart-5: 0.65 0.15 150;
+    /* Sidebar */
+    --sidebar: 0.907 0.025 75;
+    --sidebar-foreground: 0.22 0.04 55;
+    --sidebar-primary: 0.574 0.1 135;
+    --sidebar-primary-foreground: 0.97 0.01 90;
+    --sidebar-accent: 0.92 0.02 75;
+    --sidebar-accent-foreground: 0.22 0.04 55;
+    --sidebar-border: 0.836 0.03 75;
+    --sidebar-ring: 0.574 0.1 135;
+
+    /* Custom app tokens */
+    --color-warning-gold: oklch(0.762 0.12 75);
+    --color-wood: oklch(0.475 0.07 55);
+    --color-sage: oklch(0.574 0.1 135);
+    --color-sage-light: oklch(0.74 0.09 135);
+    --color-cream: oklch(0.969 0.018 78);
+    --color-beige: oklch(0.907 0.025 75);
+    --color-brown: oklch(0.22 0.04 55);
+    --color-muted-brown: oklch(0.44 0.04 55);
+    --color-warning-red: oklch(0.48 0.19 27);
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family: "Nunito", sans-serif;
+  }
+
+  h1,
+  h2,
+  h3 {
+    font-family: "Nunito", sans-serif;
+    font-weight: 800;
+  }
+}
+
+@layer utilities {
+  .card-warm {
+    @apply bg-card border border-border rounded-2xl shadow-sm;
+  }
+
+  .btn-primary {
+    @apply bg-primary text-primary-foreground rounded-full px-5 py-2 font-semibold hover:opacity-90 transition-opacity;
+  }
+
+  .text-muted-brown {
+    color: var(--color-muted-brown);
+  }
+
+  .pulse-green {
+    animation: pulseGreen 2s infinite;
+  }
+
+  @keyframes pulseGreen {
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.5;
+    }
+  }
+
+  @keyframes timerPulse {
+    0%,
+    100% {
+      box-shadow: 0 0 0 0 oklch(0.574 0.1 135 / 0.4);
+    }
+    50% {
+      box-shadow: 0 0 0 16px oklch(0.574 0.1 135 / 0);
+    }
+  }
+
+  .timer-active {
+    animation: timerPulse 2s infinite;
+  }
+}
