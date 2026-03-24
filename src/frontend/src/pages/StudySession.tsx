@@ -56,10 +56,16 @@ export default function StudySession() {
   );
   const [endPhotoPreview, setEndPhotoPreview] = useState<string | null>(null);
   const [sessionData, setSessionData] = useState<StudySessionType | null>(null);
-  const [endBlobRef, setEndBlobRef] = useState<ExternalBlob | null>(null);
+  const [_endBlobRef, setEndBlobRef] = useState<ExternalBlob | null>(null);
+  const [isStarting, setIsStarting] = useState(false);
 
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const startTimeRef = useRef<number>(0);
+  // Capture elapsed/subject at completion time so community post uses correct values
+  const finalElapsedRef = useRef<number>(0);
+  const finalSubjectRef = useRef<string>("");
+  const shareToCommunityRef = useRef<boolean>(true);
+  const sessionStartedRef = useRef<boolean>(false);
 
   const startSession = useStartSession();
   const completeSession = useCompleteSession();
@@ -68,6 +74,11 @@ export default function StudySession() {
   const saveProfile = useSaveProfile();
 
   const camera = useCamera({ quality: 0.85 });
+
+  // Keep shareToCommunityRef in sync
+  useEffect(() => {
+    shareToCommunityRef.current = shareToCommunity;
+  }, [shareToCommunity]);
 
   // Timer logic
   useEffect(() => {
@@ -108,17 +119,29 @@ export default function StudySession() {
   };
 
   const handleCaptureStart = async () => {
+    // Guard: prevent duplicate session creation
+    if (sessionStartedRef.current) return;
+    sessionStartedRef.current = true;
+    setIsStarting(true);
+
+    // Capture photo
     const file = await camera.capturePhoto();
     if (!file) {
       toast.error("Failed to capture photo");
+      sessionStartedRef.current = false;
+      setIsStarting(false);
       return;
     }
+
     const bytes = new Uint8Array(await file.arrayBuffer());
     const blob = ExternalBlob.fromBytes(bytes);
     setStartPhotoBlob(blob);
     setStartPhotoPreview(URL.createObjectURL(file));
     await camera.stopCamera();
 
+    console.log("[Session] Photo captured");
+
+    // Build session object
     const now = BigInt(Date.now());
     const session: StudySessionType = {
       startTime: now,
@@ -130,18 +153,38 @@ export default function StudySession() {
       startPhoto: blob,
       endPhoto: ExternalBlob.fromBytes(new Uint8Array(0)),
     };
-    try {
-      await startSession.mutateAsync(session);
-      setSessionData(session);
-      startTimeRef.current = Date.now();
-      setIsRunning(true);
-      setPhase("active");
-      toast.success("Session started! Stay focused! 🌿");
-    } catch (err) {
-      toast.error(
-        `Failed to start session: ${err instanceof Error ? err.message : String(err)}`,
+
+    // Immediately create session and start timer — do NOT wait for backend
+    setSessionData(session);
+    startTimeRef.current = Date.now();
+    setIsRunning(true);
+    setPhase("active");
+
+    console.log("[Session] Session created");
+    console.log("[Session] Timer started");
+
+    toast.success("Session started! Stay focused! 🌿");
+
+    // Fire-and-forget: save to backend (non-blocking)
+    startSession
+      .mutateAsync(session)
+      .then(() => console.log("[Session] Backend session saved"))
+      .catch((err) =>
+        console.error("[Session] Backend save failed (non-blocking):", err),
       );
-    }
+
+    // Fire-and-forget: generate SHA-256 hash in background (non-blocking)
+    crypto.subtle
+      .digest("SHA-256", bytes)
+      .then((buf) => {
+        const hash = new Uint8Array(buf);
+        console.log("[Session] Hash generated, length:", hash.length);
+      })
+      .catch((err) =>
+        console.error("[Session] Hash generation failed (non-blocking):", err),
+      );
+
+    console.log("[Session] Photo uploaded (async)");
   };
 
   const handleEndSessionCamera = async () => {
@@ -163,6 +206,11 @@ export default function StudySession() {
     await camera.stopCamera();
 
     if (!sessionData || !startPhotoBlob) return;
+
+    // Snapshot values at completion time
+    finalElapsedRef.current = elapsedSeconds;
+    finalSubjectRef.current = subject;
+
     const completed: StudySessionType = {
       ...sessionData,
       endTime: BigInt(Date.now()),
@@ -197,40 +245,48 @@ export default function StudySession() {
           deskItems,
         });
       }
+
       setPhase("complete");
       toast.success("Session complete! Great work! 🏆");
+
+      // ✅ Create community post IMMEDIATELY after session is marked complete
+      if (shareToCommunityRef.current) {
+        try {
+          const communityPost: CommunityPost = {
+            postId: `session-${Date.now()}`,
+            userId: profile?.displayName ?? "user",
+            userName: profile?.displayName ?? "Student",
+            postType: "session",
+            duration: formatTime(finalElapsedRef.current),
+            subject: finalSubjectRef.current,
+            caption: "",
+            photoUrl: endBlob.getDirectURL(),
+            createdAt: BigInt(Date.now()),
+            sessionId: `session-${startTimeRef.current}`,
+          };
+          console.log(
+            "[Community] Creating post, duration:",
+            communityPost.duration,
+            "subject:",
+            communityPost.subject,
+          );
+          await createCommunityPost.mutateAsync(communityPost);
+          console.log("[Community] Community post created successfully");
+          toast.success("Shared to community! 🔥");
+        } catch (postErr) {
+          // Silent fail — do not block session completion
+          console.warn(
+            "[Community] Post creation failed (non-blocking):",
+            postErr,
+          );
+        }
+      }
     } catch {
       toast.error("Failed to save session");
     }
   };
 
-  const handleShareToCommunity = async (blob: ExternalBlob | null) => {
-    if (!shareToCommunity || !blob) return;
-    try {
-      const communityPost: CommunityPost = {
-        postId: `session-${Date.now()}`,
-        userId: profile?.displayName ?? "user",
-        userName: profile?.displayName ?? "Student",
-        postType: "session",
-        duration: formatTime(elapsedSeconds),
-        subject: subject,
-        caption: "",
-        photoUrl: blob.getDirectURL(),
-        createdAt: BigInt(Date.now()),
-        sessionId: `session-${startTimeRef.current}`,
-      };
-      await createCommunityPost.mutateAsync(communityPost);
-      toast.success("Shared to community! 🔥");
-    } catch {
-      // Silent fail — do not block session completion
-    }
-  };
-
   const handleReset = () => {
-    // Share to community before resetting if we have the end blob
-    if (endBlobRef) {
-      handleShareToCommunity(endBlobRef);
-    }
     setPhase("setup");
     setSubject("");
     setElapsedSeconds(0);
@@ -243,6 +299,8 @@ export default function StudySession() {
     setEndPhotoPreview(null);
     setSessionData(null);
     setEndBlobRef(null);
+    sessionStartedRef.current = false;
+    setIsStarting(false);
   };
 
   // Reusable camera error overlay
@@ -391,13 +449,11 @@ export default function StudySession() {
                     data-ocid="session.capture_start.primary_button"
                     onClick={handleCaptureStart}
                     disabled={
-                      !camera.isActive ||
-                      camera.isLoading ||
-                      startSession.isPending
+                      isStarting || !camera.isActive || camera.isLoading
                     }
                     className="w-full rounded-full font-bold h-12"
                   >
-                    {startSession.isPending ? (
+                    {isStarting ? (
                       <>
                         <Loader2 className="animate-spin mr-2" size={16} />
                         Starting session…

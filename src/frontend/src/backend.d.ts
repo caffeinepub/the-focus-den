@@ -27,6 +27,12 @@ export interface CommunityPost {
     postId: string;
 }
 export type Badge = string;
+export interface SyllabusGoal {
+    subjectName: string;
+    totalLectures: bigint;
+    completedLectures: bigint;
+    examDate: bigint;
+}
 export interface Squad {
     members: Array<Principal>;
     name: string;
@@ -36,6 +42,14 @@ export interface Post {
     subjectName: string;
     body: string;
     author: Principal;
+}
+export interface PostComment {
+    userName: string;
+    commentId: string;
+    userId: string;
+    createdAt: bigint;
+    text: string;
+    postId: string;
 }
 export interface StudySession {
     startTime: bigint;
@@ -57,18 +71,13 @@ export interface UserProfile {
     deskItems: Array<DeskItem>;
     currentStreak: bigint;
 }
-export interface SyllabusGoal {
-    subjectName: string;
-    totalLectures: bigint;
-    completedLectures: bigint;
-    examDate: bigint;
-}
 export enum UserRole {
     admin = "admin",
     user = "user",
     guest = "guest"
 }
 export interface backendInterface {
+    addComment(postId: string, text: string): Promise<PostComment>;
     addStudySession(studySession: StudySession): Promise<void>;
     addSyllabusGoal(syllabusGoal: SyllabusGoal): Promise<void>;
     assignCallerUserRole(user: Principal, role: UserRole): Promise<void>;
@@ -76,11 +85,19 @@ export interface backendInterface {
     createCommunityPost(post: CommunityPost): Promise<void>;
     createPost(publishPost: Post): Promise<void>;
     createSquad(squad: Squad): Promise<void>;
+    deleteComment(commentId: string): Promise<void>;
+    deleteCommunityPost(postId: string): Promise<void>;
     getCallerSession(): Promise<StudySession | null>;
     getCallerUserProfile(): Promise<UserProfile | null>;
     getCallerUserRole(): Promise<UserRole>;
+    getComments(postId: string): Promise<Array<PostComment>>;
     getCommunityFeed(): Promise<Array<CommunityPost>>;
+    getCommunityFeedWithAuth(): Promise<Array<CommunityPost>>;
     getFeed(): Promise<Array<StudySession>>;
+    getPostLikeCount(postId: string): Promise<{
+        count: bigint;
+        liked: boolean;
+    }>;
     getPosts(subjectName: string): Promise<Array<Post>>;
     getStreakLeaderboard(): Promise<Array<UserProfile>>;
     getUserProfile(user: Principal): Promise<UserProfile | null>;
@@ -89,4 +106,5 @@ export interface backendInterface {
     joinSquad(squadName: string): Promise<void>;
     saveCallerUserProfile(profile: UserProfile): Promise<void>;
     startSession(session: StudySession): Promise<void>;
+    togglePostLike(postId: string): Promise<bigint>;
 }

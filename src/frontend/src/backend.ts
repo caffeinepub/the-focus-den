@@ -89,9 +89,12 @@ export class ExternalBlob {
         return this;
     }
 }
-export interface _CaffeineStorageRefillResult {
-    success?: boolean;
-    topped_up_amount?: bigint;
+export interface _CaffeineStorageRefillInformation {
+    proposed_top_up_amount?: bigint;
+}
+export interface _CaffeineStorageCreateCertificateResult {
+    method: string;
+    blob_hash: string;
 }
 export interface CommunityPost {
     postType: string;
@@ -106,8 +109,11 @@ export interface CommunityPost {
     postId: string;
 }
 export type Badge = string;
-export interface _CaffeineStorageRefillInformation {
-    proposed_top_up_amount?: bigint;
+export interface SyllabusGoal {
+    subjectName: string;
+    totalLectures: bigint;
+    completedLectures: bigint;
+    examDate: bigint;
 }
 export interface Squad {
     members: Array<Principal>;
@@ -119,6 +125,14 @@ export interface Post {
     body: string;
     author: Principal;
 }
+export interface PostComment {
+    userName: string;
+    commentId: string;
+    userId: string;
+    createdAt: bigint;
+    text: string;
+    postId: string;
+}
 export interface StudySession {
     startTime: bigint;
     isCompleted: boolean;
@@ -129,11 +143,11 @@ export interface StudySession {
     endPhoto: ExternalBlob;
     startPhoto: ExternalBlob;
 }
-export interface _CaffeineStorageCreateCertificateResult {
-    method: string;
-    blob_hash: string;
-}
 export type DeskItem = string;
+export interface _CaffeineStorageRefillResult {
+    success?: boolean;
+    topped_up_amount?: bigint;
+}
 export interface UserProfile {
     displayName: string;
     badges: Array<Badge>;
@@ -142,12 +156,6 @@ export interface UserProfile {
     longestStreak: bigint;
     deskItems: Array<DeskItem>;
     currentStreak: bigint;
-}
-export interface SyllabusGoal {
-    subjectName: string;
-    totalLectures: bigint;
-    completedLectures: bigint;
-    examDate: bigint;
 }
 export enum UserRole {
     admin = "admin",
@@ -162,6 +170,7 @@ export interface backendInterface {
     _caffeineStorageRefillCashier(refillInformation: _CaffeineStorageRefillInformation | null): Promise<_CaffeineStorageRefillResult>;
     _caffeineStorageUpdateGatewayPrincipals(): Promise<void>;
     _initializeAccessControlWithSecret(userSecret: string): Promise<void>;
+    addComment(postId: string, text: string): Promise<PostComment>;
     addStudySession(studySession: StudySession): Promise<void>;
     addSyllabusGoal(syllabusGoal: SyllabusGoal): Promise<void>;
     assignCallerUserRole(user: Principal, role: UserRole): Promise<void>;
@@ -169,11 +178,19 @@ export interface backendInterface {
     createCommunityPost(post: CommunityPost): Promise<void>;
     createPost(publishPost: Post): Promise<void>;
     createSquad(squad: Squad): Promise<void>;
+    deleteComment(commentId: string): Promise<void>;
+    deleteCommunityPost(postId: string): Promise<void>;
     getCallerSession(): Promise<StudySession | null>;
     getCallerUserProfile(): Promise<UserProfile | null>;
     getCallerUserRole(): Promise<UserRole>;
+    getComments(postId: string): Promise<Array<PostComment>>;
     getCommunityFeed(): Promise<Array<CommunityPost>>;
+    getCommunityFeedWithAuth(): Promise<Array<CommunityPost>>;
     getFeed(): Promise<Array<StudySession>>;
+    getPostLikeCount(postId: string): Promise<{
+        count: bigint;
+        liked: boolean;
+    }>;
     getPosts(subjectName: string): Promise<Array<Post>>;
     getStreakLeaderboard(): Promise<Array<UserProfile>>;
     getUserProfile(user: Principal): Promise<UserProfile | null>;
@@ -182,6 +199,7 @@ export interface backendInterface {
     joinSquad(squadName: string): Promise<void>;
     saveCallerUserProfile(profile: UserProfile): Promise<void>;
     startSession(session: StudySession): Promise<void>;
+    togglePostLike(postId: string): Promise<bigint>;
 }
 import type { ExternalBlob as _ExternalBlob, StudySession as _StudySession, UserProfile as _UserProfile, UserRole as _UserRole, _CaffeineStorageRefillInformation as __CaffeineStorageRefillInformation, _CaffeineStorageRefillResult as __CaffeineStorageRefillResult } from "./declarations/backend.did.d.ts";
 export class Backend implements backendInterface {
@@ -284,6 +302,20 @@ export class Backend implements backendInterface {
             return result;
         }
     }
+    async addComment(arg0: string, arg1: string): Promise<PostComment> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.addComment(arg0, arg1);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.addComment(arg0, arg1);
+            return result;
+        }
+    }
     async addStudySession(arg0: StudySession): Promise<void> {
         if (this.processError) {
             try {
@@ -382,6 +414,34 @@ export class Backend implements backendInterface {
             return result;
         }
     }
+    async deleteComment(arg0: string): Promise<void> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.deleteComment(arg0);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.deleteComment(arg0);
+            return result;
+        }
+    }
+    async deleteCommunityPost(arg0: string): Promise<void> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.deleteCommunityPost(arg0);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.deleteCommunityPost(arg0);
+            return result;
+        }
+    }
     async getCallerSession(): Promise<StudySession | null> {
         if (this.processError) {
             try {
@@ -424,6 +484,20 @@ export class Backend implements backendInterface {
             return from_candid_UserRole_n18(this._uploadFile, this._downloadFile, result);
         }
     }
+    async getComments(arg0: string): Promise<Array<PostComment>> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.getComments(arg0);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.getComments(arg0);
+            return result;
+        }
+    }
     async getCommunityFeed(): Promise<Array<CommunityPost>> {
         if (this.processError) {
             try {
@@ -435,6 +509,20 @@ export class Backend implements backendInterface {
             }
         } else {
             const result = await this.actor.getCommunityFeed();
+            return result;
+        }
+    }
+    async getCommunityFeedWithAuth(): Promise<Array<CommunityPost>> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.getCommunityFeedWithAuth();
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.getCommunityFeedWithAuth();
             return result;
         }
     }
@@ -450,6 +538,23 @@ export class Backend implements backendInterface {
         } else {
             const result = await this.actor.getFeed();
             return from_candid_vec_n20(this._uploadFile, this._downloadFile, result);
+        }
+    }
+    async getPostLikeCount(arg0: string): Promise<{
+        count: bigint;
+        liked: boolean;
+    }> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.getPostLikeCount(arg0);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.getPostLikeCount(arg0);
+            return result;
         }
     }
     async getPosts(arg0: string): Promise<Array<Post>> {
@@ -561,6 +666,20 @@ export class Backend implements backendInterface {
             }
         } else {
             const result = await this.actor.startSession(await to_candid_StudySession_n8(this._uploadFile, this._downloadFile, arg0));
+            return result;
+        }
+    }
+    async togglePostLike(arg0: string): Promise<bigint> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.togglePostLike(arg0);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.togglePostLike(arg0);
             return result;
         }
     }

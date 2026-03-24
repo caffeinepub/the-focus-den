@@ -1,21 +1,31 @@
 # The Focus Den
 
 ## Current State
-Dashboard shows a "Total Study Time" display that auto-increments a `ticker` interval on page load, making the clock tick even with no active session. StudySession timer state (`isRunning`) starts as `false` and is only set `true` after `startSession.mutateAsync` succeeds -- but the backend call is failing with "failed to start session" because the photo blob bytes are embedded directly in the session object, which can exceed ICP per-message limits.
+Community Feed supports session and aesthetic posts with image viewing and owner-only deletion. Reactions (fire, validate) are client-side only and not persisted. No comment system exists.
 
 ## Requested Changes (Diff)
 
 ### Add
-- Nothing new
+- Persistent likes on community posts (per-user, toggle on/off, stored in backend)
+- Comments on community posts (add, view, delete own comments)
+- `PostComment` type: commentId, postId, userId, userName, text, createdAt
+- Backend: `togglePostLike(postId)` → returns updated like count
+- Backend: `getPostLikes(postId)` → returns count + whether caller has liked
+- Backend: `addComment(postId, text)` → creates comment
+- Backend: `getComments(postId)` → returns comments sorted oldest-first
+- Backend: `deleteComment(commentId)` → owner only
+- Frontend: Like button on each post card showing real count, toggled state
+- Frontend: Comment section expandable per post, shows up to 3 comments with "View all" option
+- Frontend: Comment input field per post
 
 ### Modify
-- **Dashboard.tsx**: Remove the auto-start `setInterval` ticker. Show `totalSeconds` statically (no live increment). Dashboard is a summary view, not a live timer.
-- **StudySession.tsx**: Upload the photo blob separately before calling `startSession`. Pass only metadata (no raw bytes) in the session record for the start call. Ensure `isRunning` is never set `true` unless `startSession.mutateAsync` resolves without error. Improve error toast to include the actual error message.
+- CommunityFeed.tsx: Replace local reaction state with real like/comment hooks
+- useQueries.ts: Add useToggleLike, useGetPostLikes, useAddComment, useGetComments, useDeleteComment hooks
 
 ### Remove
-- `ticker` state and its `useEffect`/`setInterval` from Dashboard.tsx
+- Local-only reaction state in CommunityFeed (replaced by persisted likes)
 
 ## Implementation Plan
-1. Remove `ticker` state, `timerRef`, and the `useEffect` in Dashboard.tsx. Replace `formatTime(totalSeconds + (ticker % 60))` with `formatTime(totalSeconds)`.
-2. In StudySession `handleCaptureStart`: use `blob.upload()` (ExternalBlob upload API) before building the session object so the session stores a reference, not raw bytes. If upload fails, show error and do NOT proceed to startSession.
-3. Ensure the `catch` block in `handleCaptureStart` re-throws only after setting `isRunning` to false and logging the actual error string.
+1. Update backend with PostComment type, postLikes map, postComments map, and new functions
+2. Add new query/mutation hooks in useQueries.ts
+3. Update CommunityFeed.tsx with real like counts, toggleable like button, and comment UI

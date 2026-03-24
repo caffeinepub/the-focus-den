@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
   CommunityPost,
   Post,
+  PostComment,
   Squad,
   StudySession,
   SyllabusGoal,
@@ -72,6 +73,88 @@ export function useCreateCommunityPost() {
       await actor.createCommunityPost(post);
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["communityFeed"] }),
+  });
+}
+
+export function useDeleteCommunityPost() {
+  const { actor } = useActor();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (postId: string) => {
+      if (!actor) throw new Error("No actor");
+      await actor.deleteCommunityPost(postId);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["communityFeed"] });
+    },
+  });
+}
+
+export function useGetPostLikeCount(postId: string) {
+  const { actor, isFetching } = useActor();
+  return useQuery<{ count: bigint; liked: boolean }>({
+    queryKey: ["postLikes", postId],
+    queryFn: async () => {
+      if (!actor) return { count: BigInt(0), liked: false };
+      return actor.getPostLikeCount(postId);
+    },
+    enabled: !!actor && !isFetching && !!postId,
+  });
+}
+
+export function useToggleLike() {
+  const { actor } = useActor();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (postId: string) => {
+      if (!actor) throw new Error("No actor");
+      return actor.togglePostLike(postId);
+    },
+    onSuccess: (_data, postId) => {
+      qc.invalidateQueries({ queryKey: ["postLikes", postId] });
+    },
+  });
+}
+
+export function useGetComments(postId: string) {
+  const { actor, isFetching } = useActor();
+  return useQuery<PostComment[]>({
+    queryKey: ["comments", postId],
+    queryFn: async () => {
+      if (!actor) return [];
+      return actor.getComments(postId);
+    },
+    enabled: !!actor && !isFetching && !!postId,
+  });
+}
+
+export function useAddComment() {
+  const { actor } = useActor();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ postId, text }: { postId: string; text: string }) => {
+      if (!actor) throw new Error("No actor");
+      return actor.addComment(postId, text);
+    },
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: ["comments", vars.postId] });
+    },
+  });
+}
+
+export function useDeleteComment() {
+  const { actor } = useActor();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      commentId,
+    }: { commentId: string; postId: string }) => {
+      if (!actor) throw new Error("No actor");
+      await actor.deleteComment(commentId);
+    },
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: ["comments", vars.postId] });
+    },
   });
 }
 

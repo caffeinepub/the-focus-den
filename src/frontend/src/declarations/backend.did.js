@@ -19,6 +19,14 @@ export const _CaffeineStorageRefillResult = IDL.Record({
   'success' : IDL.Opt(IDL.Bool),
   'topped_up_amount' : IDL.Opt(IDL.Nat),
 });
+export const PostComment = IDL.Record({
+  'userName' : IDL.Text,
+  'commentId' : IDL.Text,
+  'userId' : IDL.Text,
+  'createdAt' : IDL.Int,
+  'text' : IDL.Text,
+  'postId' : IDL.Text,
+});
 export const ExternalBlob = IDL.Vec(IDL.Nat8);
 export const StudySession = IDL.Record({
   'startTime' : IDL.Int,
@@ -103,6 +111,7 @@ export const idlService = IDL.Service({
     ),
   '_caffeineStorageUpdateGatewayPrincipals' : IDL.Func([], [], []),
   '_initializeAccessControlWithSecret' : IDL.Func([IDL.Text], [], []),
+  'addComment' : IDL.Func([IDL.Text, IDL.Text], [PostComment], []),
   'addStudySession' : IDL.Func([StudySession], [], []),
   'addSyllabusGoal' : IDL.Func([SyllabusGoal], [], []),
   'assignCallerUserRole' : IDL.Func([IDL.Principal, UserRole], [], []),
@@ -110,11 +119,24 @@ export const idlService = IDL.Service({
   'createCommunityPost' : IDL.Func([CommunityPost], [], []),
   'createPost' : IDL.Func([Post], [], []),
   'createSquad' : IDL.Func([Squad], [], []),
+  'deleteComment' : IDL.Func([IDL.Text], [], []),
+  'deleteCommunityPost' : IDL.Func([IDL.Text], [], []),
   'getCallerSession' : IDL.Func([], [IDL.Opt(StudySession)], ['query']),
   'getCallerUserProfile' : IDL.Func([], [IDL.Opt(UserProfile)], ['query']),
   'getCallerUserRole' : IDL.Func([], [UserRole], ['query']),
+  'getComments' : IDL.Func([IDL.Text], [IDL.Vec(PostComment)], ['query']),
   'getCommunityFeed' : IDL.Func([], [IDL.Vec(CommunityPost)], ['query']),
+  'getCommunityFeedWithAuth' : IDL.Func(
+      [],
+      [IDL.Vec(CommunityPost)],
+      ['query'],
+    ),
   'getFeed' : IDL.Func([], [IDL.Vec(StudySession)], ['query']),
+  'getPostLikeCount' : IDL.Func(
+      [IDL.Text],
+      [IDL.Record({ 'count' : IDL.Nat, 'liked' : IDL.Bool })],
+      ['query'],
+    ),
   'getPosts' : IDL.Func([IDL.Text], [IDL.Vec(Post)], ['query']),
   'getStreakLeaderboard' : IDL.Func([], [IDL.Vec(UserProfile)], ['query']),
   'getUserProfile' : IDL.Func(
@@ -127,6 +149,7 @@ export const idlService = IDL.Service({
   'joinSquad' : IDL.Func([IDL.Text], [], []),
   'saveCallerUserProfile' : IDL.Func([UserProfile], [], []),
   'startSession' : IDL.Func([StudySession], [], []),
+  'togglePostLike' : IDL.Func([IDL.Text], [IDL.Nat], []),
 });
 
 export const idlInitArgs = [];
@@ -142,6 +165,14 @@ export const idlFactory = ({ IDL }) => {
   const _CaffeineStorageRefillResult = IDL.Record({
     'success' : IDL.Opt(IDL.Bool),
     'topped_up_amount' : IDL.Opt(IDL.Nat),
+  });
+  const PostComment = IDL.Record({
+    'userName' : IDL.Text,
+    'commentId' : IDL.Text,
+    'userId' : IDL.Text,
+    'createdAt' : IDL.Int,
+    'text' : IDL.Text,
+    'postId' : IDL.Text,
   });
   const ExternalBlob = IDL.Vec(IDL.Nat8);
   const StudySession = IDL.Record({
@@ -227,6 +258,7 @@ export const idlFactory = ({ IDL }) => {
       ),
     '_caffeineStorageUpdateGatewayPrincipals' : IDL.Func([], [], []),
     '_initializeAccessControlWithSecret' : IDL.Func([IDL.Text], [], []),
+    'addComment' : IDL.Func([IDL.Text, IDL.Text], [PostComment], []),
     'addStudySession' : IDL.Func([StudySession], [], []),
     'addSyllabusGoal' : IDL.Func([SyllabusGoal], [], []),
     'assignCallerUserRole' : IDL.Func([IDL.Principal, UserRole], [], []),
@@ -234,11 +266,24 @@ export const idlFactory = ({ IDL }) => {
     'createCommunityPost' : IDL.Func([CommunityPost], [], []),
     'createPost' : IDL.Func([Post], [], []),
     'createSquad' : IDL.Func([Squad], [], []),
+    'deleteComment' : IDL.Func([IDL.Text], [], []),
+    'deleteCommunityPost' : IDL.Func([IDL.Text], [], []),
     'getCallerSession' : IDL.Func([], [IDL.Opt(StudySession)], ['query']),
     'getCallerUserProfile' : IDL.Func([], [IDL.Opt(UserProfile)], ['query']),
     'getCallerUserRole' : IDL.Func([], [UserRole], ['query']),
+    'getComments' : IDL.Func([IDL.Text], [IDL.Vec(PostComment)], ['query']),
     'getCommunityFeed' : IDL.Func([], [IDL.Vec(CommunityPost)], ['query']),
+    'getCommunityFeedWithAuth' : IDL.Func(
+        [],
+        [IDL.Vec(CommunityPost)],
+        ['query'],
+      ),
     'getFeed' : IDL.Func([], [IDL.Vec(StudySession)], ['query']),
+    'getPostLikeCount' : IDL.Func(
+        [IDL.Text],
+        [IDL.Record({ 'count' : IDL.Nat, 'liked' : IDL.Bool })],
+        ['query'],
+      ),
     'getPosts' : IDL.Func([IDL.Text], [IDL.Vec(Post)], ['query']),
     'getStreakLeaderboard' : IDL.Func([], [IDL.Vec(UserProfile)], ['query']),
     'getUserProfile' : IDL.Func(
@@ -251,6 +296,7 @@ export const idlFactory = ({ IDL }) => {
     'joinSquad' : IDL.Func([IDL.Text], [], []),
     'saveCallerUserProfile' : IDL.Func([UserProfile], [], []),
     'startSession' : IDL.Func([StudySession], [], []),
+    'togglePostLike' : IDL.Func([IDL.Text], [IDL.Nat], []),
   });
 };
 

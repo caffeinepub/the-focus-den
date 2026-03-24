@@ -1,39 +1,25 @@
 import Map "mo:core/Map";
 import Set "mo:core/Set";
 import Array "mo:core/Array";
-import Iter "mo:core/Iter";
-import Time "mo:core/Time";
 import Text "mo:core/Text";
-import Int "mo:core/Int";
-import Nat "mo:core/Nat";
-import Order "mo:core/Order";
-import Runtime "mo:core/Runtime";
 import List "mo:core/List";
+import Nat "mo:core/Nat";
+import Int "mo:core/Int";
+import Order "mo:core/Order";
+import Iter "mo:core/Iter";
+import Runtime "mo:core/Runtime";
 import Principal "mo:core/Principal";
+import Time "mo:core/Time";
 
-import MixinAuthorization "authorization/MixinAuthorization";
+import Migration "migration";
 import AccessControl "authorization/access-control";
-import MixinStorage "blob-storage/Mixin";
+import MixinAuthorization "authorization/MixinAuthorization";
 import Storage "blob-storage/Storage";
+import MixinStorage "blob-storage/Mixin";
 
-
+// Use with clause to apply migration during upgrade
+(with migration = Migration.run)
 actor {
-  let feedEntries = Map.empty<Principal, StudySession>();
-  let squatrs = Map.empty<Text, Set.Set<Principal>>();
-  let syllabusGoals = List.empty<SyllabusGoal>();
-  let sessions = Map.empty<Principal, StudySession>();
-  let posts = Map.empty<Principal, Post>();
-  let communityPosts = List.empty<CommunityPost>();
-  let profileOf = Map.empty<Principal, UserProfile>();
-
-  // Authorization
-  let accessControlState = AccessControl.initState();
-  include MixinAuthorization(accessControlState);
-
-  // Blob Storage
-  include MixinStorage();
-
-  // Types
   type Badge = Text;
   type DeskItem = Text;
 
@@ -85,6 +71,15 @@ actor {
     author : Principal;
   };
 
+  type PostComment = {
+    commentId : Text;
+    postId : Text;
+    userId : Text;
+    userName : Text;
+    text : Text;
+    createdAt : Int;
+  };
+
   module UserProfile {
     public func compare(a : UserProfile, b : UserProfile) : Order.Order {
       Nat.compare(b.totalStudySeconds, a.totalStudySeconds);
@@ -104,6 +99,33 @@ actor {
       Int.compare(b.createdAt, a.createdAt); // Newest post first
     };
   };
+
+  module PostComment {
+    public func compareByCreatedAt(a : PostComment, b : PostComment) : Order.Order {
+      Int.compare(a.createdAt, b.createdAt); // Oldest comment first
+    };
+  };
+
+  // Persistent state variables are members of
+  // a persistent actor class
+  let feedEntries = Map.empty<Principal, StudySession>();
+  let squatrs = Map.empty<Text, Set.Set<Principal>>();
+  let syllabusGoals = List.empty<SyllabusGoal>();
+  let sessions = Map.empty<Principal, StudySession>();
+  let posts = Map.empty<Principal, Post>();
+  let communityPosts = List.empty<CommunityPost>();
+  let profileOf = Map.empty<Principal, UserProfile>();
+  let postCreators = Map.empty<Text, Principal>(); // Track post creators for delete functionality
+  let postLikes = Map.empty<Text, Set.Set<Principal>>(); // Likes for each post
+  let postComments = List.empty<PostComment>(); // List of all comments
+  let commentCreators = Map.empty<Text, Principal>(); // Track comment creators for delete functionality
+
+  // Authorization
+  let accessControlState = AccessControl.initState();
+  include MixinAuthorization(accessControlState);
+
+  // Blob Storage
+  include MixinStorage();
 
   // User Profile Management
   public shared ({ caller }) func saveCallerUserProfile(profile : UserProfile) : async () {
@@ -229,26 +251,179 @@ actor {
         return;
       };
     };
-
-    // Prepend new post
-    communityPosts.add(post);
-    // Trim to max 50 posts (keep most recent first)
-    let trimmed = List.empty<CommunityPost>();
-    var count = 0;
-    for (p in communityPosts.values()) {
-      if (count < 50) {
-        trimmed.add(p);
-        count += 1;
+    let trimAndAddPost = func() {
+      let swappedArray = communityPosts.toArray();
+      let trimmedArray = swappedArray.sliceToArray(0, Nat.min(49, swappedArray.size()));
+      let trimmedList = List.empty<CommunityPost>();
+      trimmedList.addAll(trimmedArray.values());
+      trimmedList.add(post);
+      communityPosts.clear();
+      communityPosts.addAll(trimmedList.toArray().values());
+    };
+    let sortAndAddPost = func() {
+      let sortedArray = communityPosts.toArray().sort(CommunityPost.compareByCreatedAt);
+      let trimmedSortedArray = sortedArray.sliceToArray(0, Nat.min(49, sortedArray.size()));
+      let trimmedList = List.empty<CommunityPost>();
+      trimmedList.addAll(trimmedSortedArray.values());
+      trimmedList.add(post);
+      communityPosts.clear();
+      communityPosts.addAll(trimmedList.toArray().values());
+    };
+    let addPost = func() {
+      if (communityPosts.size() >= 50) { trimAndAddPost() } else {
+        communityPosts.add(post);
       };
     };
-    communityPosts.clear();
-    for (p in trimmed.values()) {
-      communityPosts.add(p);
+    addPost();
+    // Store creator in tracking map
+    postCreators.add(post.postId, caller);
+  };
+
+  public shared ({ caller }) func deleteCommunityPost(postId : Text) : async () {
+    // First check that caller is a registered user
+    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
+      Runtime.trap("Unauthorized: Only users can delete community posts");
+    };
+
+    // Then check ownership
+    switch (postCreators.get(postId)) {
+      case (null) {
+        Runtime.trap("Post not found");
+      };
+      case (?creator) {
+        if (creator != caller) {
+          Runtime.trap("Unauthorized");
+        } else {
+          let filteredPosts = communityPosts.filter(func(p) { p.postId != postId });
+          communityPosts.clear();
+          for (p in filteredPosts.values()) {
+            communityPosts.add(p);
+          };
+          postCreators.remove(postId); // Remove tracking
+        };
+      };
     };
   };
 
   public query func getCommunityFeed() : async [CommunityPost] {
     let sorted = communityPosts.toArray().sort(CommunityPost.compareByCreatedAt);
     sorted.sliceToArray(0, Nat.min(50, sorted.size()));
+  };
+
+  public query ({ caller }) func getCommunityFeedWithAuth() : async [CommunityPost] {
+    let sorted = communityPosts.toArray().sort(CommunityPost.compareByCreatedAt);
+    sorted.sliceToArray(0, Nat.min(50, sorted.size()));
+  };
+
+  // Likes
+  public shared ({ caller }) func togglePostLike(postId : Text) : async Nat {
+    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
+      Runtime.trap("Unauthorized: Only users can like posts");
+    };
+    switch (postLikes.get(postId)) {
+      case (null) {
+        let newSet = Set.singleton(caller);
+        postLikes.add(postId, newSet);
+        1;
+      };
+      case (?existingLikes) {
+        if (existingLikes.contains(caller)) {
+          let updatedLikes = existingLikes.clone();
+          updatedLikes.remove(caller);
+          postLikes.add(postId, updatedLikes);
+          updatedLikes.size();
+        } else {
+          let updatedLikes = existingLikes.clone();
+          updatedLikes.add(caller);
+          postLikes.add(postId, updatedLikes);
+          updatedLikes.size();
+        };
+      };
+    };
+  };
+
+  public query ({ caller }) func getPostLikeCount(postId : Text) : async {
+    count : Nat;
+    liked : Bool;
+  } {
+    switch (postLikes.get(postId)) {
+      case (null) {
+        { count = 0; liked = false };
+      };
+      case (?likes) {
+        { count = likes.size(); liked = likes.contains(caller) };
+      };
+    };
+  };
+
+  // Comments
+  public shared ({ caller }) func addComment(postId : Text, text : Text) : async PostComment {
+    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
+      Runtime.trap("Unauthorized: Only users can comment");
+    };
+    // Check post existence
+    if (not postCreators.containsKey(postId)) {
+      Runtime.trap("Post does not exist");
+    };
+    // Check comment length
+    let commentText = text.trim(#char ' ');
+    if (commentText.size() == 0) {
+      Runtime.trap("Comment cannot be empty");
+    };
+    if (commentText.size() > 500) {
+      Runtime.trap("Comment must be less than 500 characters");
+    };
+    let time = Time.now();
+    let commentId = postId.concat(caller.toText().concat(time.toText()));
+    // Get user profile
+    let userName = switch (profileOf.get(caller)) {
+      case (?profile) { profile.displayName };
+      // fallback
+      case (null) { "Anonymous" };
+    };
+    let comment : PostComment = {
+      commentId;
+      postId;
+      userId = caller.toText();
+      userName;
+      text = commentText;
+      createdAt = time;
+    };
+    postComments.add(comment);
+    // Track comment creator for delete rights
+    commentCreators.add(commentId, caller);
+    comment;
+  };
+
+  public query func getComments(postId : Text) : async [PostComment] {
+    let filtered = postComments.filter(
+      func(c) {
+        c.postId == postId
+      }
+    );
+    filtered.toArray().sort(PostComment.compareByCreatedAt);
+  };
+
+  public shared ({ caller }) func deleteComment(commentId : Text) : async () {
+    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
+      Runtime.trap("Unauthorized: Only users can delete comments");
+    };
+    switch (commentCreators.get(commentId)) {
+      case (null) {
+        Runtime.trap("Comment not found");
+      };
+      case (?creator) {
+        if (creator != caller) {
+          Runtime.trap("Unauthorized: Only comment owner can delete comment");
+        } else {
+          let filteredComments = postComments.filter(func(c) { c.commentId != commentId });
+          postComments.clear();
+          for (c in filteredComments.values()) {
+            postComments.add(c);
+          };
+          commentCreators.remove(commentId); // Remove tracking
+        };
+      };
+    };
   };
 };

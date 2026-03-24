@@ -31,6 +31,14 @@ export interface Post {
   'body' : string,
   'author' : Principal,
 }
+export interface PostComment {
+  'userName' : string,
+  'commentId' : string,
+  'userId' : string,
+  'createdAt' : bigint,
+  'text' : string,
+  'postId' : string,
+}
 export interface Squad { 'members' : Array<Principal>, 'name' : string }
 export interface StudySession {
   'startTime' : bigint,
@@ -88,6 +96,7 @@ export interface _SERVICE {
   >,
   '_caffeineStorageUpdateGatewayPrincipals' : ActorMethod<[], undefined>,
   '_initializeAccessControlWithSecret' : ActorMethod<[string], undefined>,
+  'addComment' : ActorMethod<[string, string], PostComment>,
   'addStudySession' : ActorMethod<[StudySession], undefined>,
   'addSyllabusGoal' : ActorMethod<[SyllabusGoal], undefined>,
   'assignCallerUserRole' : ActorMethod<[Principal, UserRole], undefined>,
@@ -95,11 +104,19 @@ export interface _SERVICE {
   'createCommunityPost' : ActorMethod<[CommunityPost], undefined>,
   'createPost' : ActorMethod<[Post], undefined>,
   'createSquad' : ActorMethod<[Squad], undefined>,
+  'deleteComment' : ActorMethod<[string], undefined>,
+  'deleteCommunityPost' : ActorMethod<[string], undefined>,
   'getCallerSession' : ActorMethod<[], [] | [StudySession]>,
   'getCallerUserProfile' : ActorMethod<[], [] | [UserProfile]>,
   'getCallerUserRole' : ActorMethod<[], UserRole>,
+  'getComments' : ActorMethod<[string], Array<PostComment>>,
   'getCommunityFeed' : ActorMethod<[], Array<CommunityPost>>,
+  'getCommunityFeedWithAuth' : ActorMethod<[], Array<CommunityPost>>,
   'getFeed' : ActorMethod<[], Array<StudySession>>,
+  'getPostLikeCount' : ActorMethod<
+    [string],
+    { 'count' : bigint, 'liked' : boolean }
+  >,
   'getPosts' : ActorMethod<[string], Array<Post>>,
   'getStreakLeaderboard' : ActorMethod<[], Array<UserProfile>>,
   'getUserProfile' : ActorMethod<[Principal], [] | [UserProfile]>,
@@ -108,6 +125,7 @@ export interface _SERVICE {
   'joinSquad' : ActorMethod<[string], undefined>,
   'saveCallerUserProfile' : ActorMethod<[UserProfile], undefined>,
   'startSession' : ActorMethod<[StudySession], undefined>,
+  'togglePostLike' : ActorMethod<[string], bigint>,
 }
 export declare const idlService: IDL.ServiceClass;
 export declare const idlInitArgs: IDL.Type[];

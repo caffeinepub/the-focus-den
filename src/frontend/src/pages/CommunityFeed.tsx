@@ -1,3 +1,13 @@
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -8,18 +18,41 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
+import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
-import { Flame, Loader2, Plus } from "lucide-react";
-import { motion } from "motion/react";
+import {
+  Heart,
+  Loader2,
+  MessageCircle,
+  MoreVertical,
+  Plus,
+  Send,
+  Trash2,
+  X,
+} from "lucide-react";
+import { AnimatePresence, motion } from "motion/react";
 import { useRef, useState } from "react";
 import { toast } from "sonner";
 import { ExternalBlob } from "../backend";
-import type { CommunityPost } from "../backend";
+import type { CommunityPost, PostComment } from "../backend";
 import {
+  useAddComment,
   useCreateCommunityPost,
+  useDeleteComment,
+  useDeleteCommunityPost,
   useGetCallerUserProfile,
+  useGetComments,
   useGetCommunityFeed,
+  useGetPostLikeCount,
+  useToggleLike,
 } from "../hooks/useQueries";
 
 function timeAgo(timestamp: number): string {
@@ -239,29 +272,406 @@ function CreatePostModal() {
   );
 }
 
+// Full-screen lightbox
+function ImageLightbox({
+  url,
+  onClose,
+}: {
+  url: string;
+  onClose: () => void;
+}) {
+  return (
+    <AnimatePresence>
+      <motion.div
+        data-ocid="feed.lightbox.modal"
+        className="fixed inset-0 z-50 flex items-center justify-center"
+        style={{ background: "rgba(0,0,0,0.85)" }}
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        onClick={onClose}
+      >
+        <button
+          type="button"
+          data-ocid="feed.lightbox.close_button"
+          onClick={onClose}
+          className="absolute top-4 right-4 z-10 rounded-full p-2 text-white"
+          style={{ background: "rgba(0,0,0,0.5)" }}
+          aria-label="Close image"
+        >
+          <X size={22} />
+        </button>
+        <motion.img
+          src={url}
+          alt="Full view"
+          className="max-w-[90vw] max-h-[90vh] object-contain rounded-xl shadow-2xl"
+          initial={{ scale: 0.9, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          exit={{ scale: 0.9, opacity: 0 }}
+          transition={{ type: "spring", stiffness: 300, damping: 28 }}
+          onClick={(e) => e.stopPropagation()}
+        />
+      </motion.div>
+    </AnimatePresence>
+  );
+}
+
+// Like button component
+function LikeButton({ postId }: { postId: string }) {
+  const { data, isLoading } = useGetPostLikeCount(postId);
+  const toggleLike = useToggleLike();
+
+  const liked = data?.liked ?? false;
+  const count = Number(data?.count ?? 0);
+
+  return (
+    <button
+      type="button"
+      data-ocid="feed.post.toggle"
+      disabled={isLoading || toggleLike.isPending}
+      onClick={() => toggleLike.mutate(postId)}
+      className="flex items-center gap-1.5 text-xs font-medium rounded-full px-3 py-1.5 transition-all duration-150 select-none"
+      style={{
+        background: liked ? "oklch(0.95 0.06 15)" : "oklch(0.96 0.01 75)",
+        color: liked ? "oklch(0.5 0.2 15)" : "oklch(0.5 0.04 75)",
+        border: liked
+          ? "1.5px solid oklch(0.85 0.1 15)"
+          : "1.5px solid oklch(0.88 0.03 75)",
+      }}
+      aria-label={liked ? "Unlike" : "Like"}
+    >
+      <Heart
+        size={13}
+        className={liked ? "fill-current" : ""}
+        style={{ transition: "transform 0.15s" }}
+      />
+      <span>{count > 0 ? count : "Like"}</span>
+    </button>
+  );
+}
+
+// Comments section component
+function CommentsSection({
+  postId,
+  currentUserId,
+}: {
+  postId: string;
+  currentUserId: string | null;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const [commentText, setCommentText] = useState("");
+  const [deleteTargetCommentId, setDeleteTargetCommentId] = useState<
+    string | null
+  >(null);
+
+  const { data: comments = [], isLoading } = useGetComments(
+    expanded ? postId : "",
+  );
+  const addComment = useAddComment();
+  const deleteComment = useDeleteComment();
+
+  const handleSend = async () => {
+    const text = commentText.trim();
+    if (!text) return;
+    try {
+      await addComment.mutateAsync({ postId, text });
+      setCommentText("");
+    } catch {
+      toast.error("Couldn't post comment");
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      handleSend();
+    }
+  };
+
+  const handleConfirmDeleteComment = async () => {
+    if (!deleteTargetCommentId) return;
+    try {
+      await deleteComment.mutateAsync({
+        commentId: deleteTargetCommentId,
+        postId,
+      });
+      toast.success("Comment deleted");
+    } catch {
+      toast.error("Failed to delete comment");
+    } finally {
+      setDeleteTargetCommentId(null);
+    }
+  };
+
+  const commentCount = expanded ? comments.length : 0;
+
+  return (
+    <div>
+      {/* Delete comment confirmation */}
+      <AlertDialog
+        open={!!deleteTargetCommentId}
+        onOpenChange={(open) => !open && setDeleteTargetCommentId(null)}
+      >
+        <AlertDialogContent data-ocid="feed.delete_comment.dialog">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this comment?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel
+              data-ocid="feed.delete_comment.cancel_button"
+              onClick={() => setDeleteTargetCommentId(null)}
+            >
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              data-ocid="feed.delete_comment.confirm_button"
+              onClick={handleConfirmDeleteComment}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deleteComment.isPending ? (
+                <Loader2 className="animate-spin mr-2" size={14} />
+              ) : (
+                <Trash2 size={14} className="mr-2" />
+              )}
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Toggle button */}
+      <button
+        type="button"
+        data-ocid="feed.post.secondary_button"
+        onClick={() => setExpanded((v) => !v)}
+        className="flex items-center gap-1.5 text-xs font-medium rounded-full px-3 py-1.5 transition-all duration-150 select-none"
+        style={{
+          background: expanded ? "oklch(0.93 0.04 240)" : "oklch(0.96 0.01 75)",
+          color: expanded ? "oklch(0.42 0.12 240)" : "oklch(0.5 0.04 75)",
+          border: expanded
+            ? "1.5px solid oklch(0.82 0.09 240)"
+            : "1.5px solid oklch(0.88 0.03 75)",
+        }}
+      >
+        <MessageCircle size={13} />
+        <span>
+          {expanded
+            ? commentCount > 0
+              ? `${commentCount} comment${commentCount !== 1 ? "s" : ""}`
+              : "Comments"
+            : "Comment"}
+        </span>
+      </button>
+
+      {/* Expanded comments */}
+      <AnimatePresence>
+        {expanded && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            transition={{ duration: 0.2 }}
+            className="overflow-hidden"
+          >
+            <div
+              className="mt-3 rounded-xl space-y-3 p-3"
+              style={{ background: "oklch(0.97 0.01 75)" }}
+            >
+              <Separator className="opacity-40" />
+
+              {/* Comment list */}
+              {isLoading ? (
+                <div
+                  data-ocid="feed.comments.loading_state"
+                  className="space-y-2"
+                >
+                  <Skeleton className="h-8 rounded-lg" />
+                  <Skeleton className="h-8 rounded-lg" />
+                </div>
+              ) : comments.length === 0 ? (
+                <p
+                  data-ocid="feed.comments.empty_state"
+                  className="text-xs text-center py-2"
+                  style={{ color: "oklch(0.62 0.04 75)" }}
+                >
+                  No comments yet. Be the first! 💬
+                </p>
+              ) : (
+                <div className="space-y-2">
+                  {comments.map((comment: PostComment, ci: number) => {
+                    const cInitials = (comment.userName || "S")
+                      .slice(0, 2)
+                      .toUpperCase();
+                    const cHue = 60 + (cInitials.charCodeAt(0) % 8) * 20;
+                    const isOwner =
+                      !!currentUserId && comment.userId === currentUserId;
+
+                    return (
+                      <div
+                        key={comment.commentId}
+                        data-ocid={`feed.comments.item.${ci + 1}`}
+                        className="flex items-start gap-2"
+                      >
+                        <Avatar className="w-6 h-6 shrink-0 mt-0.5">
+                          <AvatarFallback
+                            className="text-[9px] font-bold"
+                            style={{
+                              background: `oklch(0.88 0.07 ${cHue})`,
+                              color: "oklch(0.3 0.04 55)",
+                            }}
+                          >
+                            {cInitials}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-baseline gap-1.5 flex-wrap">
+                            <span
+                              className="text-xs font-bold"
+                              style={{ color: "oklch(0.35 0.06 55)" }}
+                            >
+                              {comment.userName}
+                            </span>
+                            <span
+                              className="text-[10px]"
+                              style={{ color: "oklch(0.62 0.03 75)" }}
+                            >
+                              {timeAgo(Number(comment.createdAt))}
+                            </span>
+                          </div>
+                          <p
+                            className="text-xs leading-relaxed mt-0.5"
+                            style={{ color: "oklch(0.38 0.04 55)" }}
+                          >
+                            {comment.text}
+                          </p>
+                        </div>
+                        {isOwner && (
+                          <button
+                            type="button"
+                            data-ocid={`feed.comments.delete_button.${ci + 1}`}
+                            onClick={() =>
+                              setDeleteTargetCommentId(comment.commentId)
+                            }
+                            className="shrink-0 p-1 rounded opacity-40 hover:opacity-80 transition-opacity"
+                            style={{ color: "oklch(0.5 0.15 15)" }}
+                            aria-label="Delete comment"
+                          >
+                            <Trash2 size={11} />
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Add comment input */}
+              <div className="flex gap-2 items-center pt-1">
+                <Input
+                  data-ocid="feed.comments.input"
+                  placeholder="Add a comment…"
+                  value={commentText}
+                  onChange={(e) => setCommentText(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  maxLength={300}
+                  className="rounded-full text-xs h-8 flex-1"
+                  style={{ background: "oklch(1 0 0)" }}
+                />
+                <Button
+                  data-ocid="feed.comments.submit_button"
+                  size="icon"
+                  disabled={!commentText.trim() || addComment.isPending}
+                  onClick={handleSend}
+                  className="h-8 w-8 rounded-full shrink-0"
+                  aria-label="Send comment"
+                >
+                  {addComment.isPending ? (
+                    <Loader2 size={13} className="animate-spin" />
+                  ) : (
+                    <Send size={13} />
+                  )}
+                </Button>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
 export default function CommunityFeed() {
   const { data: feedData = [], isLoading } = useGetCommunityFeed();
-  const [reactions, setReactions] = useState<
-    Record<string, { fire: number; validate: number }>
-  >({});
+  const { data: profile } = useGetCallerUserProfile();
+  const deletePost = useDeleteCommunityPost();
+
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
+  const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
+
+  const currentUserId = profile?.displayName ?? null;
 
   // Sort by createdAt descending
   const sortedFeed = [...feedData].sort(
     (a, b) => Number(b.createdAt) - Number(a.createdAt),
   );
 
-  const toggleReaction = (key: string, type: "fire" | "validate") => {
-    setReactions((prev) => ({
-      ...prev,
-      [key]: {
-        fire: (prev[key]?.fire ?? 0) + (type === "fire" ? 1 : 0),
-        validate: (prev[key]?.validate ?? 0) + (type === "validate" ? 1 : 0),
-      },
-    }));
+  const handleConfirmDelete = async () => {
+    if (!deleteTargetId) return;
+    try {
+      await deletePost.mutateAsync(deleteTargetId);
+      toast.success("Post deleted successfully");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to delete post");
+    } finally {
+      setDeleteTargetId(null);
+    }
   };
 
   return (
     <div className="max-w-2xl mx-auto px-4 py-8 space-y-6">
+      {/* Lightbox */}
+      {lightboxUrl && (
+        <ImageLightbox url={lightboxUrl} onClose={() => setLightboxUrl(null)} />
+      )}
+
+      {/* Delete Post Confirmation Dialog */}
+      <AlertDialog
+        open={!!deleteTargetId}
+        onOpenChange={(open) => !open && setDeleteTargetId(null)}
+      >
+        <AlertDialogContent data-ocid="feed.delete_post.dialog">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this post?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete this post? This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel
+              data-ocid="feed.delete_post.cancel_button"
+              onClick={() => setDeleteTargetId(null)}
+            >
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              data-ocid="feed.delete_post.confirm_button"
+              onClick={handleConfirmDelete}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deletePost.isPending ? (
+                <Loader2 className="animate-spin mr-2" size={14} />
+              ) : (
+                <Trash2 size={14} className="mr-2" />
+              )}
+              Delete Post
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       <motion.div
         initial={{ opacity: 0, y: 16 }}
         animate={{ opacity: 1, y: 0 }}
@@ -301,9 +711,10 @@ export default function CommunityFeed() {
           {sortedFeed.map((post: CommunityPost, idx: number) => {
             const key = `item-${idx}`;
             const isSession = post.postType === "session";
-            const r = reactions[key] ?? { fire: 0, validate: 0 };
             const initials = (post.userName || "S").slice(0, 2).toUpperCase();
             const avatarHue = 60 + (initials.charCodeAt(0) % 8) * 20;
+            const isOwner =
+              !!profile?.displayName && post.userId === profile.displayName;
 
             return (
               <motion.div
@@ -351,16 +762,54 @@ export default function CommunityFeed() {
                           </p>
                         )}
                       </div>
+
+                      {/* 3-dot menu — owner only */}
+                      {isOwner && (
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              data-ocid={`feed.item.${idx + 1}.open_modal_button`}
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 shrink-0 rounded-full text-muted-foreground hover:text-foreground"
+                              aria-label="Post options"
+                            >
+                              <MoreVertical size={16} />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent
+                            data-ocid={`feed.item.${idx + 1}.dropdown_menu`}
+                            align="end"
+                          >
+                            <DropdownMenuItem
+                              data-ocid={`feed.item.${idx + 1}.delete_button`}
+                              className="text-destructive focus:text-destructive gap-2 cursor-pointer"
+                              onClick={() => setDeleteTargetId(post.postId)}
+                            >
+                              <Trash2 size={14} />
+                              Delete Post
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      )}
                     </div>
 
-                    {/* Photo */}
+                    {/* Photo — clickable for lightbox */}
                     {post.photoUrl && (
-                      <img
-                        src={post.photoUrl}
-                        alt={isSession ? "Session notes" : "Study setup"}
-                        className="w-full rounded-xl object-cover"
-                        style={{ maxHeight: 240 }}
-                      />
+                      <button
+                        type="button"
+                        data-ocid={`feed.item.${idx + 1}.canvas_target`}
+                        className="w-full p-0 border-0 bg-transparent cursor-pointer rounded-xl overflow-hidden block"
+                        onClick={() => setLightboxUrl(post.photoUrl)}
+                        aria-label="View full image"
+                      >
+                        <img
+                          src={post.photoUrl}
+                          alt={isSession ? "Session notes" : "Study setup"}
+                          className="w-full rounded-xl object-cover transition-opacity hover:opacity-90 active:opacity-75"
+                          style={{ maxHeight: 240 }}
+                        />
+                      </button>
                     )}
 
                     {/* Caption */}
@@ -370,27 +819,13 @@ export default function CommunityFeed() {
                       </p>
                     )}
 
-                    {/* Reaction buttons */}
-                    <div className="flex gap-2 pt-1">
-                      <Button
-                        data-ocid={`feed.item.${idx + 1}.toggle`}
-                        variant="outline"
-                        size="sm"
-                        className="rounded-full text-xs"
-                        onClick={() => toggleReaction(key, "validate")}
-                      >
-                        ✅ Validate{r.validate > 0 ? ` (${r.validate})` : ""}
-                      </Button>
-                      <Button
-                        data-ocid={`feed.item.${idx + 1}.secondary_button`}
-                        variant="outline"
-                        size="sm"
-                        className="rounded-full text-xs"
-                        onClick={() => toggleReaction(key, "fire")}
-                      >
-                        <Flame size={12} className="mr-1" />
-                        Fire{r.fire > 0 ? ` (${r.fire})` : ""}
-                      </Button>
+                    {/* Actions row: Like + Comment */}
+                    <div className="flex gap-2 pt-1 flex-wrap">
+                      <LikeButton postId={post.postId} />
+                      <CommentsSection
+                        postId={post.postId}
+                        currentUserId={currentUserId}
+                      />
                     </div>
                   </CardContent>
                 </Card>
