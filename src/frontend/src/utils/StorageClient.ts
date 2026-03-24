@@ -278,8 +278,7 @@ class BlobHashTree {
       // To match rust, we have the hash of nothing
       const hex =
         "8b8e620f084e48da0be2287fd12c5aaa4dbe14b468fd2e360f48d741fe7628a0";
-      const bytes = new TextEncoder().encode(hex);
-      chunkHashes.push(new YHash(bytes));
+      chunkHashes.push(YHash.fromHex(hex));
     }
 
     // Create leaf nodes for each chunk hash
