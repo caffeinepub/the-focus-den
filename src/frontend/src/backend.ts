@@ -93,6 +93,18 @@ export interface _CaffeineStorageRefillResult {
     success?: boolean;
     topped_up_amount?: bigint;
 }
+export interface CommunityPost {
+    postType: string;
+    userName: string;
+    duration: string;
+    subject: string;
+    userId: string;
+    createdAt: bigint;
+    photoUrl: string;
+    caption: string;
+    sessionId: string;
+    postId: string;
+}
 export type Badge = string;
 export interface _CaffeineStorageRefillInformation {
     proposed_top_up_amount?: bigint;
@@ -154,11 +166,13 @@ export interface backendInterface {
     addSyllabusGoal(syllabusGoal: SyllabusGoal): Promise<void>;
     assignCallerUserRole(user: Principal, role: UserRole): Promise<void>;
     completeSession(session: StudySession): Promise<void>;
+    createCommunityPost(post: CommunityPost): Promise<void>;
     createPost(publishPost: Post): Promise<void>;
     createSquad(squad: Squad): Promise<void>;
     getCallerSession(): Promise<StudySession | null>;
     getCallerUserProfile(): Promise<UserProfile | null>;
     getCallerUserRole(): Promise<UserRole>;
+    getCommunityFeed(): Promise<Array<CommunityPost>>;
     getFeed(): Promise<Array<StudySession>>;
     getPosts(subjectName: string): Promise<Array<Post>>;
     getStreakLeaderboard(): Promise<Array<UserProfile>>;
@@ -326,6 +340,20 @@ export class Backend implements backendInterface {
             return result;
         }
     }
+    async createCommunityPost(arg0: CommunityPost): Promise<void> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.createCommunityPost(arg0);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.createCommunityPost(arg0);
+            return result;
+        }
+    }
     async createPost(arg0: Post): Promise<void> {
         if (this.processError) {
             try {
@@ -394,6 +422,20 @@ export class Backend implements backendInterface {
         } else {
             const result = await this.actor.getCallerUserRole();
             return from_candid_UserRole_n18(this._uploadFile, this._downloadFile, result);
+        }
+    }
+    async getCommunityFeed(): Promise<Array<CommunityPost>> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.getCommunityFeed();
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.getCommunityFeed();
+            return result;
         }
     }
     async getFeed(): Promise<Array<StudySession>> {

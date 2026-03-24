@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
+import { Switch } from "@/components/ui/switch";
 import {
   AlertTriangle,
   Camera,
@@ -17,10 +18,14 @@ import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { ExternalBlob } from "../backend";
-import type { StudySession as StudySessionType } from "../backend";
+import type {
+  CommunityPost,
+  StudySession as StudySessionType,
+} from "../backend";
 import { useCamera } from "../camera/useCamera";
 import {
   useCompleteSession,
+  useCreateCommunityPost,
   useGetCallerUserProfile,
   useSaveProfile,
   useStartSession,
@@ -42,6 +47,7 @@ export default function StudySession() {
   const [distractionCount, setDistractionCount] = useState(0);
   const [isRunning, setIsRunning] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
+  const [shareToCommunity, setShareToCommunity] = useState(true);
   const [startPhotoBlob, setStartPhotoBlob] = useState<ExternalBlob | null>(
     null,
   );
@@ -50,17 +56,17 @@ export default function StudySession() {
   );
   const [endPhotoPreview, setEndPhotoPreview] = useState<string | null>(null);
   const [sessionData, setSessionData] = useState<StudySessionType | null>(null);
+  const [endBlobRef, setEndBlobRef] = useState<ExternalBlob | null>(null);
 
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const startTimeRef = useRef<number>(0);
 
   const startSession = useStartSession();
   const completeSession = useCompleteSession();
+  const createCommunityPost = useCreateCommunityPost();
   const { data: profile } = useGetCallerUserProfile();
   const saveProfile = useSaveProfile();
 
-  // Default to front camera ("user") — more useful for desk selfie proof.
-  // The hook will automatically fall back if front camera is unavailable.
   const camera = useCamera({ quality: 0.85 });
 
   // Timer logic
@@ -113,7 +119,6 @@ export default function StudySession() {
     setStartPhotoPreview(URL.createObjectURL(file));
     await camera.stopCamera();
 
-    // Start session on backend
     const now = BigInt(Date.now());
     const session: StudySessionType = {
       startTime: now,
@@ -153,6 +158,7 @@ export default function StudySession() {
     }
     const bytes = new Uint8Array(await file.arrayBuffer());
     const endBlob = ExternalBlob.fromBytes(bytes);
+    setEndBlobRef(endBlob);
     setEndPhotoPreview(URL.createObjectURL(file));
     await camera.stopCamera();
 
@@ -198,17 +204,45 @@ export default function StudySession() {
     }
   };
 
+  const handleShareToCommunity = async (blob: ExternalBlob | null) => {
+    if (!shareToCommunity || !blob) return;
+    try {
+      const communityPost: CommunityPost = {
+        postId: `session-${Date.now()}`,
+        userId: profile?.displayName ?? "user",
+        userName: profile?.displayName ?? "Student",
+        postType: "session",
+        duration: formatTime(elapsedSeconds),
+        subject: subject,
+        caption: "",
+        photoUrl: blob.getDirectURL(),
+        createdAt: BigInt(Date.now()),
+        sessionId: `session-${startTimeRef.current}`,
+      };
+      await createCommunityPost.mutateAsync(communityPost);
+      toast.success("Shared to community! 🔥");
+    } catch {
+      // Silent fail — do not block session completion
+    }
+  };
+
   const handleReset = () => {
+    // Share to community before resetting if we have the end blob
+    if (endBlobRef) {
+      handleShareToCommunity(endBlobRef);
+    }
     setPhase("setup");
     setSubject("");
     setElapsedSeconds(0);
     setDistractionCount(0);
     setIsRunning(false);
     setIsPaused(false);
+    setShareToCommunity(true);
     setStartPhotoBlob(null);
     setStartPhotoPreview(null);
     setEndPhotoPreview(null);
     setSessionData(null);
+    setEndBlobRef(null);
   };
 
   // Reusable camera error overlay
@@ -651,6 +685,27 @@ export default function StudySession() {
                       </Badge>
                     ) : null}
                   </div>
+
+                  {/* Share to Community toggle */}
+                  <div
+                    className="flex items-center justify-between p-3 rounded-xl max-w-xs mx-auto"
+                    style={{ background: "oklch(0.92 0.02 75)" }}
+                  >
+                    <div className="text-left">
+                      <p className="text-sm font-semibold text-foreground">
+                        Share to Community
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        Let others see your session 🔥
+                      </p>
+                    </div>
+                    <Switch
+                      data-ocid="session.share_community.switch"
+                      checked={shareToCommunity}
+                      onCheckedChange={setShareToCommunity}
+                    />
+                  </div>
+
                   <Button
                     data-ocid="session.new_session.primary_button"
                     onClick={handleReset}

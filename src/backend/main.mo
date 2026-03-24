@@ -10,10 +10,12 @@ import Order "mo:core/Order";
 import Runtime "mo:core/Runtime";
 import List "mo:core/List";
 import Principal "mo:core/Principal";
+
 import MixinAuthorization "authorization/MixinAuthorization";
 import AccessControl "authorization/access-control";
 import MixinStorage "blob-storage/Mixin";
 import Storage "blob-storage/Storage";
+
 
 actor {
   let feedEntries = Map.empty<Principal, StudySession>();
@@ -21,6 +23,7 @@ actor {
   let syllabusGoals = List.empty<SyllabusGoal>();
   let sessions = Map.empty<Principal, StudySession>();
   let posts = Map.empty<Principal, Post>();
+  let communityPosts = List.empty<CommunityPost>();
   let profileOf = Map.empty<Principal, UserProfile>();
 
   // Authorization
@@ -55,6 +58,19 @@ actor {
     isCompleted : Bool;
   };
 
+  type CommunityPost = {
+    postId : Text;
+    userId : Text;
+    userName : Text;
+    postType : Text;
+    duration : Text;
+    subject : Text;
+    caption : Text;
+    photoUrl : Text;
+    createdAt : Int;
+    sessionId : Text;
+  };
+
   type SyllabusGoal = {
     subjectName : Text;
     totalLectures : Nat;
@@ -83,8 +99,17 @@ actor {
     };
   };
 
+  module CommunityPost {
+    public func compareByCreatedAt(a : CommunityPost, b : CommunityPost) : Order.Order {
+      Int.compare(b.createdAt, a.createdAt); // Newest post first
+    };
+  };
+
   // User Profile Management
   public shared ({ caller }) func saveCallerUserProfile(profile : UserProfile) : async () {
+    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
+      Runtime.trap("Unauthorized: Only users can save profiles");
+    };
     profileOf.add(caller, profile);
   };
 
@@ -93,6 +118,9 @@ actor {
   };
 
   public query ({ caller }) func getUserProfile(user : Principal) : async ?UserProfile {
+    if (caller != user and not AccessControl.isAdmin(accessControlState, caller)) {
+      Runtime.trap("Unauthorized: Can only view your own profile");
+    };
     profileOf.get(user);
   };
 
@@ -108,10 +136,16 @@ actor {
 
   // Study Session Management
   public shared ({ caller }) func startSession(session : StudySession) : async () {
+    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
+      Runtime.trap("Unauthorized: Only users can start sessions");
+    };
     sessions.add(caller, session);
   };
 
   public shared ({ caller }) func completeSession(session : StudySession) : async () {
+    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
+      Runtime.trap("Unauthorized: Only users can complete sessions");
+    };
     sessions.add(caller, session);
   };
 
@@ -127,11 +161,17 @@ actor {
   };
 
   public shared ({ caller }) func createSquad(squad : Squad) : async () {
+    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
+      Runtime.trap("Unauthorized: Only users can create squads");
+    };
     let membersSet = Set.singleton(caller);
     squatrs.add(squad.name, membersSet);
   };
 
   public shared ({ caller }) func joinSquad(squadName : Text) : async () {
+    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
+      Runtime.trap("Unauthorized: Only users can join squads");
+    };
     switch (squatrs.get(squadName)) {
       case (?members) {
         if (members.size() >= 5) {
@@ -147,11 +187,17 @@ actor {
 
   // Community Feed
   public shared ({ caller }) func addStudySession(studySession : StudySession) : async () {
+    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
+      Runtime.trap("Unauthorized: Only users can add study sessions");
+    };
     feedEntries.add(caller, studySession);
   };
 
   // Syllabus Goals Management
   public shared ({ caller }) func addSyllabusGoal(syllabusGoal : SyllabusGoal) : async () {
+    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
+      Runtime.trap("Unauthorized: Only users can add syllabus goals");
+    };
     syllabusGoals.add(syllabusGoal);
   };
 
@@ -166,6 +212,43 @@ actor {
   };
 
   public shared ({ caller }) func createPost(publishPost : Post) : async () {
+    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
+      Runtime.trap("Unauthorized: Only users can create posts");
+    };
     posts.add(caller, publishPost);
+  };
+
+  public shared ({ caller }) func createCommunityPost(post : CommunityPost) : async () {
+    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
+      Runtime.trap("Unauthorized: Only users can create community posts");
+    };
+    // Check for duplicate sessionId if provided
+    if (post.sessionId.size() > 0) {
+      let alreadyExists = communityPosts.any(func(p) { p.sessionId == post.sessionId });
+      if (alreadyExists) {
+        return;
+      };
+    };
+
+    // Prepend new post
+    communityPosts.add(post);
+    // Trim to max 50 posts (keep most recent first)
+    let trimmed = List.empty<CommunityPost>();
+    var count = 0;
+    for (p in communityPosts.values()) {
+      if (count < 50) {
+        trimmed.add(p);
+        count += 1;
+      };
+    };
+    communityPosts.clear();
+    for (p in trimmed.values()) {
+      communityPosts.add(p);
+    };
+  };
+
+  public query func getCommunityFeed() : async [CommunityPost] {
+    let sorted = communityPosts.toArray().sort(CommunityPost.compareByCreatedAt);
+    sorted.sliceToArray(0, Nat.min(50, sorted.size()));
   };
 };

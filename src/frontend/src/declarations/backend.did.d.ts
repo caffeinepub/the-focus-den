@@ -11,6 +11,18 @@ import type { IDL } from '@icp-sdk/core/candid';
 import type { Principal } from '@icp-sdk/core/principal';
 
 export type Badge = string;
+export interface CommunityPost {
+  'postType' : string,
+  'userName' : string,
+  'duration' : string,
+  'subject' : string,
+  'userId' : string,
+  'createdAt' : bigint,
+  'photoUrl' : string,
+  'caption' : string,
+  'sessionId' : string,
+  'postId' : string,
+}
 export type DeskItem = string;
 export type ExternalBlob = Uint8Array;
 export interface Post {
@@ -80,11 +92,13 @@ export interface _SERVICE {
   'addSyllabusGoal' : ActorMethod<[SyllabusGoal], undefined>,
   'assignCallerUserRole' : ActorMethod<[Principal, UserRole], undefined>,
   'completeSession' : ActorMethod<[StudySession], undefined>,
+  'createCommunityPost' : ActorMethod<[CommunityPost], undefined>,
   'createPost' : ActorMethod<[Post], undefined>,
   'createSquad' : ActorMethod<[Squad], undefined>,
   'getCallerSession' : ActorMethod<[], [] | [StudySession]>,
   'getCallerUserProfile' : ActorMethod<[], [] | [UserProfile]>,
   'getCallerUserRole' : ActorMethod<[], UserRole>,
+  'getCommunityFeed' : ActorMethod<[], Array<CommunityPost>>,
   'getFeed' : ActorMethod<[], Array<StudySession>>,
   'getPosts' : ActorMethod<[string], Array<Post>>,
   'getStreakLeaderboard' : ActorMethod<[], Array<UserProfile>>,

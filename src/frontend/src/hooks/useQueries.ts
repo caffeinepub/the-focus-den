@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
+  CommunityPost,
   Post,
   Squad,
   StudySession,
@@ -47,6 +48,30 @@ export function useGetFeed() {
       return actor.getFeed();
     },
     enabled: !!actor && !isFetching,
+  });
+}
+
+export function useGetCommunityFeed() {
+  const { actor, isFetching } = useActor();
+  return useQuery<CommunityPost[]>({
+    queryKey: ["communityFeed"],
+    queryFn: async () => {
+      if (!actor) return [];
+      return actor.getCommunityFeed();
+    },
+    enabled: !!actor && !isFetching,
+  });
+}
+
+export function useCreateCommunityPost() {
+  const { actor } = useActor();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (post: CommunityPost) => {
+      if (!actor) throw new Error("No actor");
+      await actor.createCommunityPost(post);
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["communityFeed"] }),
   });
 }
 

@@ -14,6 +14,18 @@ export class ExternalBlob {
     static fromBytes(blob: Uint8Array<ArrayBuffer>): ExternalBlob;
     withUploadProgress(onProgress: (percentage: number) => void): ExternalBlob;
 }
+export interface CommunityPost {
+    postType: string;
+    userName: string;
+    duration: string;
+    subject: string;
+    userId: string;
+    createdAt: bigint;
+    photoUrl: string;
+    caption: string;
+    sessionId: string;
+    postId: string;
+}
 export type Badge = string;
 export interface Squad {
     members: Array<Principal>;
@@ -61,11 +73,13 @@ export interface backendInterface {
     addSyllabusGoal(syllabusGoal: SyllabusGoal): Promise<void>;
     assignCallerUserRole(user: Principal, role: UserRole): Promise<void>;
     completeSession(session: StudySession): Promise<void>;
+    createCommunityPost(post: CommunityPost): Promise<void>;
     createPost(publishPost: Post): Promise<void>;
     createSquad(squad: Squad): Promise<void>;
     getCallerSession(): Promise<StudySession | null>;
     getCallerUserProfile(): Promise<UserProfile | null>;
     getCallerUserRole(): Promise<UserRole>;
+    getCommunityFeed(): Promise<Array<CommunityPost>>;
     getFeed(): Promise<Array<StudySession>>;
     getPosts(subjectName: string): Promise<Array<Post>>;
     getStreakLeaderboard(): Promise<Array<UserProfile>>;
