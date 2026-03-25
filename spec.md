@@ -1,31 +1,35 @@
 # The Focus Den
 
 ## Current State
-Community Feed supports session and aesthetic posts with image viewing and owner-only deletion. Reactions (fire, validate) are client-side only and not persisted. No comment system exists.
+MySquad.tsx has:
+- Create Squad and Join Squad forms
+- A single Squad Chat section that requires manually typing a squad name to load messages
+- Active Squads section shows an empty state placeholder with no actual squad list
+- No persistence of which squads the user has joined/created
+
+Backend has `getSquadMessages(squadId)` and `sendSquadMessage(squadId, messageText)` but no `getCallerSquads` API to list a user's squads.
 
 ## Requested Changes (Diff)
 
 ### Add
-- Persistent likes on community posts (per-user, toggle on/off, stored in backend)
-- Comments on community posts (add, view, delete own comments)
-- `PostComment` type: commentId, postId, userId, userName, text, createdAt
-- Backend: `togglePostLike(postId)` → returns updated like count
-- Backend: `getPostLikes(postId)` → returns count + whether caller has liked
-- Backend: `addComment(postId, text)` → creates comment
-- Backend: `getComments(postId)` → returns comments sorted oldest-first
-- Backend: `deleteComment(commentId)` → owner only
-- Frontend: Like button on each post card showing real count, toggled state
-- Frontend: Comment section expandable per post, shows up to 3 comments with "View all" option
-- Frontend: Comment input field per post
+- LocalStorage persistence of squads the user has created/joined (store array of {id, name})
+- Active Squads section now renders a card for each saved squad, showing the squad name, member count placeholder, and a "Open Chat" button
+- Dedicated per-squad chat: clicking "Open Chat" on a squad card opens a full chat view scoped to that specific squad (no manual name entry needed)
+- Chat view header shows the squad name clearly
+- Back button in chat view returns to the squad list
 
 ### Modify
-- CommunityFeed.tsx: Replace local reaction state with real like/comment hooks
-- useQueries.ts: Add useToggleLike, useGetPostLikes, useAddComment, useGetComments, useDeleteComment hooks
+- After creating or joining a squad, automatically save it to localStorage and immediately show it in Active Squads list
+- Remove the manual "Enter squad name to load chat" input field -- squad selection now happens through the squad cards
+- Active Squads section no longer shows the static empty state when squads exist
 
 ### Remove
-- Local-only reaction state in CommunityFeed (replaced by persisted likes)
+- The standalone chat squad-name input (chatSquadInput / Load button) since chat is now accessed via squad cards
 
 ## Implementation Plan
-1. Update backend with PostComment type, postLikes map, postComments map, and new functions
-2. Add new query/mutation hooks in useQueries.ts
-3. Update CommunityFeed.tsx with real like counts, toggleable like button, and comment UI
+1. Add `useLocalStorage` hook or inline localStorage state for `mySquads: Array<{id: string, name: string}>`
+2. On successful createSquad / joinSquad, push the new squad into mySquads list
+3. Render Active Squads as a list of cards; when none exist show the existing empty state
+4. Add `selectedSquad` state; clicking "Open Chat" on a card sets selectedSquad
+5. When selectedSquad is set, show a chat panel with the squad name as header, back button, message list, and send input -- reusing existing chat logic
+6. Remove chatSquadInput state and handleLoadChat function

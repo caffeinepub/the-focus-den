@@ -10,30 +10,32 @@ import Iter "mo:core/Iter";
 import Runtime "mo:core/Runtime";
 import Principal "mo:core/Principal";
 import Time "mo:core/Time";
-
-import Migration "migration";
 import AccessControl "authorization/access-control";
 import MixinAuthorization "authorization/MixinAuthorization";
 import Storage "blob-storage/Storage";
 import MixinStorage "blob-storage/Mixin";
 
-// Use with clause to apply migration during upgrade
-(with migration = Migration.run)
-actor {
-  type Badge = Text;
-  type DeskItem = Text;
 
-  type UserProfile = {
-    displayName : Text;
-    totalStudySeconds : Nat;
-    currentStreak : Nat;
-    longestStreak : Nat;
-    lastStudyDate : Text;
-    badges : [Badge];
-    deskItems : [DeskItem];
+// Use with clause to apply migration during upgrade
+
+actor {
+  type FeedEntry = {
+    subjectName : Text;
+    startPhoto : Storage.ExternalBlob;
+    endPhoto : Storage.ExternalBlob;
+    startTime : Int;
+    endTime : Int;
+    elapsedSeconds : Nat;
+    distractionCount : Nat;
+    isCompleted : Bool;
   };
 
-  type StudySession = {
+  type Squad = {
+    name : Text;
+    members : [Principal];
+  };
+
+  type Session = {
     subjectName : Text;
     startPhoto : Storage.ExternalBlob;
     endPhoto : Storage.ExternalBlob;
@@ -62,6 +64,8 @@ actor {
     totalLectures : Nat;
     completedLectures : Nat;
     examDate : Int;
+    userId : Text;
+    createdAt : Int;
   };
 
   type Post = {
@@ -69,6 +73,16 @@ actor {
     title : Text;
     body : Text;
     author : Principal;
+  };
+
+  type Profile = {
+    displayName : Text;
+    totalStudySeconds : Nat;
+    currentStreak : Nat;
+    longestStreak : Nat;
+    lastStudyDate : Text;
+    badges : [Text];
+    deskItems : [Text];
   };
 
   type PostComment = {
@@ -80,17 +94,45 @@ actor {
     createdAt : Int;
   };
 
+  type SquadMessage = {
+    messageId : Text;
+    squadId : Text;
+    userId : Text;
+    userName : Text;
+    messageText : Text;
+    createdAt : Int;
+  };
+
+  type FeedEntries = Map.Map<Principal, FeedEntry>;
+  type Squatrs = Map.Map<Text, Set.Set<Principal>>;
+  type SyllabusGoals = List.List<SyllabusGoal>;
+  type Sessions = Map.Map<Principal, Session>;
+  type Posts = Map.Map<Principal, Post>;
+  type CommunityPosts = List.List<CommunityPost>;
+  type ProfileOf = Map.Map<Principal, Profile>;
+  type PostCreators = Map.Map<Text, Principal>;
+  type PostLikes = Map.Map<Text, Set.Set<Principal>>;
+  type PostComments = List.List<PostComment>;
+  type CommentCreators = Map.Map<Text, Principal>;
+  type SquadMessages = List.List<SquadMessage>;
+
   module UserProfile {
-    public func compare(a : UserProfile, b : UserProfile) : Order.Order {
+    public func compare(a : Profile, b : Profile) : Order.Order {
       Nat.compare(b.totalStudySeconds, a.totalStudySeconds);
     };
 
-    public func compareByStreak(a : UserProfile, b : UserProfile) : Order.Order {
+    public func compareByStreak(a : Profile, b : Profile) : Order.Order {
       Nat.compare(b.currentStreak, a.currentStreak);
     };
 
-    public func compareByDisplayName(a : UserProfile, b : UserProfile) : Order.Order {
+    public func compareByDisplayName(a : Profile, b : Profile) : Order.Order {
       Text.compare(b.displayName, a.displayName);
+    };
+  };
+
+  module SyllabusGoal {
+    public func compareByCreatedAt(a : SyllabusGoal, b : SyllabusGoal) : Order.Order {
+      Int.compare(b.createdAt, a.createdAt); // Newest post first
     };
   };
 
@@ -106,19 +148,26 @@ actor {
     };
   };
 
+  module SquadMessage {
+    public func compareByCreatedAt(a : SquadMessage, b : SquadMessage) : Order.Order {
+      Int.compare(a.createdAt, b.createdAt); // Oldest message first (ASC)
+    };
+  };
+
   // Persistent state variables are members of
   // a persistent actor class
-  let feedEntries = Map.empty<Principal, StudySession>();
-  let squatrs = Map.empty<Text, Set.Set<Principal>>();
-  let syllabusGoals = List.empty<SyllabusGoal>();
-  let sessions = Map.empty<Principal, StudySession>();
-  let posts = Map.empty<Principal, Post>();
-  let communityPosts = List.empty<CommunityPost>();
-  let profileOf = Map.empty<Principal, UserProfile>();
-  let postCreators = Map.empty<Text, Principal>(); // Track post creators for delete functionality
-  let postLikes = Map.empty<Text, Set.Set<Principal>>(); // Likes for each post
-  let postComments = List.empty<PostComment>(); // List of all comments
-  let commentCreators = Map.empty<Text, Principal>(); // Track comment creators for delete functionality
+  let feedEntries : FeedEntries = Map.empty<Principal, FeedEntry>();
+  let squatrs : Squatrs = Map.empty<Text, Set.Set<Principal>>();
+  let syllabusGoals : SyllabusGoals = List.empty<SyllabusGoal>();
+  let sessions : Sessions = Map.empty<Principal, Session>();
+  let posts : Posts = Map.empty<Principal, Post>();
+  let communityPosts : CommunityPosts = List.empty<CommunityPost>();
+  let profileOf : ProfileOf = Map.empty<Principal, Profile>();
+  let postCreators : PostCreators = Map.empty<Text, Principal>(); // Track post creators for delete functionality
+  let postLikes : PostLikes = Map.empty<Text, Set.Set<Principal>>(); // Likes for each post
+  let postComments : PostComments = List.empty<PostComment>(); // List of all comments
+  let commentCreators : CommentCreators = Map.empty<Text, Principal>(); // Track comment creators for delete functionality
+  let squadMessages : SquadMessages = List.empty<SquadMessage>();
 
   // Authorization
   let accessControlState = AccessControl.initState();
@@ -128,18 +177,18 @@ actor {
   include MixinStorage();
 
   // User Profile Management
-  public shared ({ caller }) func saveCallerUserProfile(profile : UserProfile) : async () {
+  public shared ({ caller }) func saveCallerUserProfile(profile : Profile) : async () {
     if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
       Runtime.trap("Unauthorized: Only users can save profiles");
     };
     profileOf.add(caller, profile);
   };
 
-  public query ({ caller }) func getCallerUserProfile() : async ?UserProfile {
+  public query ({ caller }) func getCallerUserProfile() : async ?Profile {
     profileOf.get(caller);
   };
 
-  public query ({ caller }) func getUserProfile(user : Principal) : async ?UserProfile {
+  public query ({ caller }) func getUserProfile(user : Principal) : async ?Profile {
     if (caller != user and not AccessControl.isAdmin(accessControlState, caller)) {
       Runtime.trap("Unauthorized: Can only view your own profile");
     };
@@ -147,24 +196,24 @@ actor {
   };
 
   // Generate leaderboard based on total study hours
-  public query func getWeeklyLeaderboard() : async [UserProfile] {
+  public query func getWeeklyLeaderboard() : async [Profile] {
     profileOf.values().toArray().sort().values().take(10).toArray();
   };
 
   // Generate leaderboard based on current streak
-  public query func getStreakLeaderboard() : async [UserProfile] {
+  public query func getStreakLeaderboard() : async [Profile] {
     profileOf.values().toArray().sort(UserProfile.compareByStreak).values().take(10).toArray();
   };
 
   // Study Session Management
-  public shared ({ caller }) func startSession(session : StudySession) : async () {
+  public shared ({ caller }) func startSession(session : Session) : async () {
     if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
       Runtime.trap("Unauthorized: Only users can start sessions");
     };
     sessions.add(caller, session);
   };
 
-  public shared ({ caller }) func completeSession(session : StudySession) : async () {
+  public shared ({ caller }) func completeSession(session : Session) : async () {
     if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
       Runtime.trap("Unauthorized: Only users can complete sessions");
     };
@@ -172,16 +221,11 @@ actor {
   };
 
   // Get session for caller
-  public query ({ caller }) func getCallerSession() : async ?StudySession {
+  public query ({ caller }) func getCallerSession() : async ?Session {
     sessions.get(caller);
   };
 
   // Squad Management
-  public type Squad = {
-    name : Text;
-    members : [Principal];
-  };
-
   public shared ({ caller }) func createSquad(squad : Squad) : async () {
     if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
       Runtime.trap("Unauthorized: Only users can create squads");
@@ -207,8 +251,40 @@ actor {
     };
   };
 
+  // Squad Chat
+  public shared ({ caller }) func sendSquadMessage(squadId : Text, messageText : Text) : async SquadMessage {
+    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
+      Runtime.trap("Unauthorized: Only users can send messages");
+    };
+    let trimmed = messageText.trim(#char ' ');
+    if (trimmed.size() == 0) {
+      Runtime.trap("Message cannot be empty");
+    };
+    let time = Time.now();
+    let messageId = squadId.concat(caller.toText().concat(time.toText()));
+    let userName = switch (profileOf.get(caller)) {
+      case (?profile) { profile.displayName };
+      case (null) { "Anonymous" };
+    };
+    let msg : SquadMessage = {
+      messageId;
+      squadId;
+      userId = caller.toText();
+      userName;
+      messageText = trimmed;
+      createdAt = time;
+    };
+    squadMessages.add(msg);
+    msg;
+  };
+
+  public query func getSquadMessages(squadId : Text) : async [SquadMessage] {
+    let filtered = squadMessages.filter(func(m) { m.squadId == squadId });
+    filtered.toArray().sort(SquadMessage.compareByCreatedAt);
+  };
+
   // Community Feed
-  public shared ({ caller }) func addStudySession(studySession : StudySession) : async () {
+  public shared ({ caller }) func addStudySession(studySession : FeedEntry) : async () {
     if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
       Runtime.trap("Unauthorized: Only users can add study sessions");
     };
@@ -220,16 +296,29 @@ actor {
     if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
       Runtime.trap("Unauthorized: Only users can add syllabus goals");
     };
-    syllabusGoals.add(syllabusGoal);
+    let goal : SyllabusGoal = {
+      syllabusGoal with
+      userId = caller.toText();
+      createdAt = Time.now();
+    };
+    syllabusGoals.add(goal);
+  };
+
+  // New endpoint to get user's own syllabus goals
+  public query ({ caller }) func getCallerSyllabusGoals() : async [SyllabusGoal] {
+    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
+      Runtime.trap("Unauthorized: Only users can view syllabus goals");
+    };
+    syllabusGoals.toArray().filter(func(goal) { goal.userId == caller.toText() }).sort(SyllabusGoal.compareByCreatedAt);
   };
 
   // Community Feed
-  public query func getFeed() : async [StudySession] {
+  public query func getFeed() : async [FeedEntry] {
     feedEntries.values().toArray().filter(func(session) { session.isCompleted });
   };
 
   // get all posts by subject
-  public query func getPosts(subjectName : Text) : async [Post] {
+  public query ({ caller }) func getPosts(subjectName : Text) : async [Post] {
     posts.values().toArray().filter(func(post) { post.subjectName == subjectName });
   };
 
@@ -395,7 +484,7 @@ actor {
     comment;
   };
 
-  public query func getComments(postId : Text) : async [PostComment] {
+  public query ({ caller }) func getComments(postId : Text) : async [PostComment] {
     let filtered = postComments.filter(
       func(c) {
         c.postId == postId

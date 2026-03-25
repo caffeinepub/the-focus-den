@@ -18,10 +18,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { ExternalBlob } from "../backend";
-import type {
-  CommunityPost,
-  StudySession as StudySessionType,
-} from "../backend";
+import type { CommunityPost, Session as StudySessionType } from "../backend";
 import { useCamera } from "../camera/useCamera";
 import {
   useCompleteSession,
@@ -40,6 +37,14 @@ function formatTime(s: number): string {
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`;
 }
 
+function bytesToDataURL(bytes: Uint8Array, mimeType = "image/jpeg"): string {
+  let binary = "";
+  for (let i = 0; i < bytes.length; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return `data:${mimeType};base64,${btoa(binary)}`;
+}
+
 export default function StudySession() {
   const [phase, setPhase] = useState<Phase>("setup");
   const [subject, setSubject] = useState("");
@@ -47,6 +52,8 @@ export default function StudySession() {
   const [distractionCount, setDistractionCount] = useState(0);
   const [isRunning, setIsRunning] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
+  const [showReasonPopup, setShowReasonPopup] = useState(false);
+  const [distractionReasons, setDistractionReasons] = useState<string[]>([]);
   const [shareToCommunity, setShareToCommunity] = useState(true);
   const [startPhotoBlob, setStartPhotoBlob] = useState<ExternalBlob | null>(
     null,
@@ -61,11 +68,13 @@ export default function StudySession() {
 
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const startTimeRef = useRef<number>(0);
-  // Capture elapsed/subject at completion time so community post uses correct values
   const finalElapsedRef = useRef<number>(0);
   const finalSubjectRef = useRef<string>("");
   const shareToCommunityRef = useRef<boolean>(true);
   const sessionStartedRef = useRef<boolean>(false);
+  const distractionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
 
   const startSession = useStartSession();
   const completeSession = useCompleteSession();
@@ -75,12 +84,10 @@ export default function StudySession() {
 
   const camera = useCamera({ quality: 0.85 });
 
-  // Keep shareToCommunityRef in sync
   useEffect(() => {
     shareToCommunityRef.current = shareToCommunity;
   }, [shareToCommunity]);
 
-  // Timer logic
   useEffect(() => {
     if (isRunning && !isPaused) {
       timerRef.current = setInterval(
@@ -95,14 +102,23 @@ export default function StudySession() {
     };
   }, [isRunning, isPaused]);
 
-  // Visibility / distraction detection
   const handleVisibilityChange = useCallback(() => {
     if (document.hidden && isRunning && !isPaused) {
-      setDistractionCount((c) => c + 1);
-      setIsPaused(true);
-      toast.warning("Distraction logged! Switched to another tab.", {
-        id: "distraction",
-      });
+      // 5-second grace period — ignore brief app switches
+      distractionTimerRef.current = setTimeout(() => {
+        if (document.hidden) {
+          setDistractionCount((c) => c + 1);
+          setIsPaused(true);
+          setShowReasonPopup(true);
+          toast.warning("Distraction logged! App went to background.", {
+            id: "distraction",
+          });
+        }
+      }, 5000);
+    } else if (!document.hidden && distractionTimerRef.current) {
+      // Returned within grace period — cancel
+      clearTimeout(distractionTimerRef.current);
+      distractionTimerRef.current = null;
     }
   }, [isRunning, isPaused]);
 
@@ -119,12 +135,10 @@ export default function StudySession() {
   };
 
   const handleCaptureStart = async () => {
-    // Guard: prevent duplicate session creation
     if (sessionStartedRef.current) return;
     sessionStartedRef.current = true;
     setIsStarting(true);
 
-    // Capture photo
     const file = await camera.capturePhoto();
     if (!file) {
       toast.error("Failed to capture photo");
@@ -141,7 +155,6 @@ export default function StudySession() {
 
     console.log("[Session] Photo captured");
 
-    // Build session object
     const now = BigInt(Date.now());
     const session: StudySessionType = {
       startTime: now,
@@ -154,7 +167,6 @@ export default function StudySession() {
       endPhoto: ExternalBlob.fromBytes(new Uint8Array(0)),
     };
 
-    // Immediately create session and start timer — do NOT wait for backend
     setSessionData(session);
     startTimeRef.current = Date.now();
     setIsRunning(true);
@@ -165,7 +177,6 @@ export default function StudySession() {
 
     toast.success("Session started! Stay focused! 🌿");
 
-    // Fire-and-forget: save to backend (non-blocking)
     startSession
       .mutateAsync(session)
       .then(() => console.log("[Session] Backend session saved"))
@@ -173,7 +184,6 @@ export default function StudySession() {
         console.error("[Session] Backend save failed (non-blocking):", err),
       );
 
-    // Fire-and-forget: generate SHA-256 hash in background (non-blocking)
     crypto.subtle
       .digest("SHA-256", bytes)
       .then((buf) => {
@@ -207,7 +217,6 @@ export default function StudySession() {
 
     if (!sessionData || !startPhotoBlob) return;
 
-    // Snapshot values at completion time
     finalElapsedRef.current = elapsedSeconds;
     finalSubjectRef.current = subject;
 
@@ -222,7 +231,6 @@ export default function StudySession() {
     };
     try {
       await completeSession.mutateAsync(completed);
-      // Update profile total hours
       if (profile) {
         const newTotal = profile.totalStudySeconds + BigInt(elapsedSeconds);
         const newHours = Number(newTotal) / 3600;
@@ -249,7 +257,6 @@ export default function StudySession() {
       setPhase("complete");
       toast.success("Session complete! Great work! 🏆");
 
-      // ✅ Create community post IMMEDIATELY after session is marked complete
       if (shareToCommunityRef.current) {
         try {
           const communityPost: CommunityPost = {
@@ -259,8 +266,11 @@ export default function StudySession() {
             postType: "session",
             duration: formatTime(finalElapsedRef.current),
             subject: finalSubjectRef.current,
-            caption: "",
-            photoUrl: endBlob.getDirectURL(),
+            caption:
+              distractionReasons.length > 0
+                ? `Distractions: ${distractionReasons.join(", ")}`
+                : "",
+            photoUrl: bytesToDataURL(bytes),
             createdAt: BigInt(Date.now()),
             sessionId: `session-${startTimeRef.current}`,
           };
@@ -274,7 +284,6 @@ export default function StudySession() {
           console.log("[Community] Community post created successfully");
           toast.success("Shared to community! 🔥");
         } catch (postErr) {
-          // Silent fail — do not block session completion
           console.warn(
             "[Community] Post creation failed (non-blocking):",
             postErr,
@@ -303,7 +312,6 @@ export default function StudySession() {
     setIsStarting(false);
   };
 
-  // Reusable camera error overlay
   const CameraErrorOverlay = () => {
     if (!camera.error) return null;
     const isPermission = camera.error.type === "permission";
@@ -339,442 +347,505 @@ export default function StudySession() {
     );
   };
 
+  // Distraction reason modal
+  const DISTRACTION_REASONS = [
+    { label: "📱 Phone usage", value: "Phone usage" },
+    { label: "📲 Social media", value: "Social media" },
+    { label: "📞 Call", value: "Call" },
+    { label: "💭 Other", value: "Other" },
+  ];
+
+  const handleSelectReason = (reason: string) => {
+    setDistractionReasons((prev) => [...prev, reason]);
+    setShowReasonPopup(false);
+  };
+
   return (
-    <div className="max-w-2xl mx-auto px-4 py-8">
-      <motion.div
-        initial={{ opacity: 0, y: 16 }}
-        animate={{ opacity: 1, y: 0 }}
-      >
-        <h1 className="text-2xl font-black text-foreground mb-6">
-          Study Session
-        </h1>
-
-        <AnimatePresence mode="wait">
-          {/* Phase: Setup */}
-          {phase === "setup" && (
+    <>
+      {/* Distraction reason popup */}
+      <AnimatePresence>
+        {showReasonPopup && (
+          <motion.div
+            key="distraction-modal"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
+          >
             <motion.div
-              key="setup"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              transition={{ type: "spring", stiffness: 320, damping: 24 }}
+              className="rounded-2xl p-6 shadow-2xl w-80 flex flex-col gap-4"
+              style={{ background: "oklch(0.92 0.02 75)" }}
             >
-              <Card className="card-warm shadow-warm">
-                <CardHeader>
-                  <CardTitle>What are you studying today?</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div>
-                    <label
-                      htmlFor="session-subject"
-                      className="text-sm font-semibold text-muted-foreground mb-1 block"
-                    >
-                      Subject
-                    </label>
-                    <Input
-                      id="session-subject"
-                      data-ocid="session.subject.input"
-                      placeholder="e.g. SFM – Bond Valuation"
-                      value={subject}
-                      onChange={(e) => setSubject(e.target.value)}
-                      className="rounded-xl"
-                    />
-                  </div>
-                  <div
-                    className="p-4 rounded-xl space-y-2"
-                    style={{ background: "oklch(0.92 0.02 75)" }}
-                  >
-                    <p className="text-sm font-bold text-foreground">
-                      📸 Session Proof Required
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      You'll take a photo of your setup (laptop, notebook, pen)
-                      to start, and a photo of your notes to complete the
-                      session.
-                    </p>
-                  </div>
+              <h2
+                className="text-lg font-bold text-center"
+                style={{ color: "oklch(0.32 0.06 50)" }}
+              >
+                Why did you get distracted?
+              </h2>
+              <div className="flex flex-col gap-2">
+                {DISTRACTION_REASONS.map((r) => (
                   <Button
-                    data-ocid="session.start_camera.primary_button"
-                    onClick={handleStartCamera}
-                    disabled={!subject.trim()}
-                    className="w-full rounded-full font-bold h-12"
+                    key={r.value}
+                    variant="outline"
+                    className="w-full rounded-xl justify-start text-sm"
+                    onClick={() => handleSelectReason(r.value)}
                   >
-                    <Camera size={18} className="mr-2" />
-                    Take Setup Photo to Begin
+                    {r.label}
                   </Button>
-                </CardContent>
-              </Card>
+                ))}
+              </div>
+              <button
+                type="button"
+                className="text-xs text-center underline opacity-60 hover:opacity-100 mt-1"
+                style={{ color: "oklch(0.42 0.06 50)" }}
+                onClick={() => handleSelectReason("Other")}
+              >
+                Skip
+              </button>
             </motion.div>
-          )}
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-          {/* Phase: Start Photo */}
-          {phase === "start-photo" && (
-            <motion.div
-              key="start-photo"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-            >
-              <Card className="card-warm shadow-warm">
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Camera size={18} className="text-primary" />
-                    Photo Proof: Your Study Setup
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <p className="text-sm text-muted-foreground">
-                    Take a photo of your desk setup (laptop, notebook, pen). No
-                    gallery uploads!
-                  </p>
-                  <div
-                    className="rounded-2xl overflow-hidden bg-black relative"
-                    style={{ aspectRatio: "4/3" }}
-                  >
-                    <video
-                      ref={camera.videoRef}
-                      className="w-full h-full object-cover"
-                      playsInline
-                      muted
-                      autoPlay
-                    />
-                    <canvas ref={camera.canvasRef} className="hidden" />
-                    {camera.isLoading && (
-                      <div className="absolute inset-0 flex items-center justify-center bg-black/50">
-                        <Loader2 className="w-8 h-8 text-white animate-spin" />
-                      </div>
-                    )}
-                    <CameraErrorOverlay />
-                  </div>
-                  <Button
-                    data-ocid="session.capture_start.primary_button"
-                    onClick={handleCaptureStart}
-                    disabled={
-                      isStarting || !camera.isActive || camera.isLoading
-                    }
-                    className="w-full rounded-full font-bold h-12"
-                  >
-                    {isStarting ? (
-                      <>
-                        <Loader2 className="animate-spin mr-2" size={16} />
-                        Starting session…
-                      </>
-                    ) : (
-                      <>
-                        <Camera size={18} className="mr-2" />
-                        Capture &amp; Start Timer
-                      </>
-                    )}
-                  </Button>
-                </CardContent>
-              </Card>
-            </motion.div>
-          )}
+      <div className="max-w-2xl mx-auto px-4 py-8">
+        <motion.div
+          initial={{ opacity: 0, y: 16 }}
+          animate={{ opacity: 1, y: 0 }}
+        >
+          <h1 className="text-2xl font-black text-foreground mb-6">
+            Study Session
+          </h1>
 
-          {/* Phase: Active */}
-          {phase === "active" && (
-            <motion.div
-              key="active"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-            >
-              <Card className="card-warm shadow-warm">
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <span
-                      className="w-3 h-3 rounded-full pulse-green"
-                      style={{ background: "oklch(0.574 0.1 135)" }}
-                    />
-                    Session Active – {subject}
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-6">
-                  {/* Timer */}
-                  <div className="text-center">
-                    <div
-                      className={`w-48 h-48 rounded-full flex flex-col items-center justify-center mx-auto ${!isPaused ? "timer-active" : ""}`}
-                      style={{
-                        background: "oklch(0.97 0.015 78)",
-                        border: `4px solid ${isPaused ? "oklch(0.48 0.19 27)" : "oklch(0.574 0.1 135)"}`,
-                      }}
-                    >
-                      <p
-                        className="font-black"
-                        style={{
-                          fontSize: 42,
-                          color: isPaused
-                            ? "oklch(0.48 0.19 27)"
-                            : "oklch(0.22 0.04 55)",
-                        }}
+          <AnimatePresence mode="wait">
+            {phase === "setup" && (
+              <motion.div
+                key="setup"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+              >
+                <Card className="card-warm shadow-warm">
+                  <CardHeader>
+                    <CardTitle>What are you studying today?</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div>
+                      <label
+                        htmlFor="session-subject"
+                        className="text-sm font-semibold text-muted-foreground mb-1 block"
                       >
-                        {formatTime(elapsedSeconds)}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        {isPaused ? "Paused" : "Elapsed"}
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Stats */}
-                  <div className="grid grid-cols-2 gap-3">
-                    <div
-                      className="text-center p-3 rounded-xl"
-                      style={{ background: "oklch(0.92 0.02 75)" }}
-                    >
-                      <p className="text-2xl font-black text-foreground">
-                        {distractionCount}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        Distractions
-                      </p>
-                    </div>
-                    <div
-                      className="text-center p-3 rounded-xl"
-                      style={{ background: "oklch(0.92 0.02 75)" }}
-                    >
-                      <p className="text-2xl font-black text-foreground">
-                        {subject.split(" ")[0]}
-                      </p>
-                      <p className="text-xs text-muted-foreground">Subject</p>
-                    </div>
-                  </div>
-
-                  {isPaused && (
-                    <div
-                      data-ocid="session.distraction.error_state"
-                      className="flex items-center gap-2 p-3 rounded-xl"
-                      style={{ background: "oklch(0.95 0.05 27)" }}
-                    >
-                      <AlertTriangle
-                        size={16}
-                        style={{ color: "oklch(0.48 0.19 27)" }}
+                        Subject
+                      </label>
+                      <Input
+                        id="session-subject"
+                        data-ocid="session.subject.input"
+                        placeholder="e.g. SFM – Bond Valuation"
+                        value={subject}
+                        onChange={(e) => setSubject(e.target.value)}
+                        className="rounded-xl"
                       />
-                      <p
-                        className="text-sm font-semibold"
-                        style={{ color: "oklch(0.48 0.19 27)" }}
-                      >
-                        Distraction logged – tap Resume to continue
-                      </p>
                     </div>
-                  )}
-
-                  {/* Start photo preview */}
-                  {startPhotoPreview && (
                     <div
-                      className="flex items-center gap-3 p-3 rounded-xl"
+                      className="p-4 rounded-xl space-y-2"
                       style={{ background: "oklch(0.92 0.02 75)" }}
                     >
-                      <img
-                        src={startPhotoPreview}
-                        alt="Setup"
-                        className="w-16 h-12 object-cover rounded-lg"
-                      />
+                      <p className="text-sm font-bold text-foreground">
+                        📸 Session Proof Required
+                      </p>
                       <p className="text-xs text-muted-foreground">
-                        ✅ Setup photo captured
+                        You'll take a photo of your setup (laptop, notebook,
+                        pen) to start, and a photo of your notes to complete the
+                        session.
                       </p>
                     </div>
-                  )}
-
-                  <Progress
-                    value={((elapsedSeconds % 3600) / 3600) * 100}
-                    className="h-2"
-                  />
-
-                  <div className="flex gap-3">
                     <Button
-                      data-ocid="session.pause.toggle"
-                      variant="outline"
-                      className="flex-1 rounded-full"
-                      onClick={() => setIsPaused((p) => !p)}
+                      data-ocid="session.start_camera.primary_button"
+                      onClick={handleStartCamera}
+                      disabled={!subject.trim()}
+                      className="w-full rounded-full font-bold h-12"
                     >
-                      {isPaused ? (
+                      <Camera size={18} className="mr-2" />
+                      Take Setup Photo to Begin
+                    </Button>
+                  </CardContent>
+                </Card>
+              </motion.div>
+            )}
+
+            {phase === "start-photo" && (
+              <motion.div
+                key="start-photo"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+              >
+                <Card className="card-warm shadow-warm">
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <Camera size={18} className="text-primary" />
+                      Photo Proof: Your Study Setup
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <p className="text-sm text-muted-foreground">
+                      Take a photo of your desk setup (laptop, notebook, pen).
+                      No gallery uploads!
+                    </p>
+                    <div
+                      className="rounded-2xl overflow-hidden bg-black relative"
+                      style={{ aspectRatio: "4/3" }}
+                    >
+                      <video
+                        ref={camera.videoRef}
+                        className="w-full h-full object-cover"
+                        playsInline
+                        muted
+                        autoPlay
+                      />
+                      <canvas ref={camera.canvasRef} className="hidden" />
+                      {camera.isLoading && (
+                        <div className="absolute inset-0 flex items-center justify-center bg-black/50">
+                          <Loader2 className="w-8 h-8 text-white animate-spin" />
+                        </div>
+                      )}
+                      <CameraErrorOverlay />
+                    </div>
+                    <Button
+                      data-ocid="session.capture_start.primary_button"
+                      onClick={handleCaptureStart}
+                      disabled={
+                        isStarting || !camera.isActive || camera.isLoading
+                      }
+                      className="w-full rounded-full font-bold h-12"
+                    >
+                      {isStarting ? (
                         <>
-                          <Play size={16} className="mr-2" />
-                          Resume
+                          <Loader2 className="animate-spin mr-2" size={16} />
+                          Starting session…
                         </>
                       ) : (
                         <>
-                          <Pause size={16} className="mr-2" />
-                          Pause
+                          <Camera size={18} className="mr-2" />
+                          Capture &amp; Start Timer
                         </>
                       )}
                     </Button>
-                    <Button
-                      data-ocid="session.end.primary_button"
-                      className="flex-1 rounded-full font-bold"
-                      onClick={handleEndSessionCamera}
-                    >
-                      <Square size={16} className="mr-2" />
-                      End &amp; Verify
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            </motion.div>
-          )}
+                  </CardContent>
+                </Card>
+              </motion.div>
+            )}
 
-          {/* Phase: End Photo */}
-          {phase === "end-photo" && (
-            <motion.div
-              key="end-photo"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-            >
-              <Card className="card-warm shadow-warm">
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <CheckCircle size={18} className="text-primary" />
-                    Verify Session: Photo of Your Notes
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <p className="text-sm text-muted-foreground">
-                    Take a photo of your handwritten notes to complete the
-                    session.
-                  </p>
-                  <div
-                    className="rounded-2xl overflow-hidden bg-black relative"
-                    style={{ aspectRatio: "4/3" }}
-                  >
-                    <video
-                      ref={camera.videoRef}
-                      className="w-full h-full object-cover"
-                      playsInline
-                      muted
-                      autoPlay
-                    />
-                    <canvas ref={camera.canvasRef} className="hidden" />
-                    {camera.isLoading && (
-                      <div className="absolute inset-0 flex items-center justify-center bg-black/50">
-                        <Loader2 className="w-8 h-8 text-white animate-spin" />
+            {phase === "active" && (
+              <motion.div
+                key="active"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+              >
+                <Card className="card-warm shadow-warm">
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <span
+                        className="w-3 h-3 rounded-full pulse-green"
+                        style={{ background: "oklch(0.574 0.1 135)" }}
+                      />
+                      Session Active – {subject}
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-6">
+                    <div className="text-center">
+                      <div
+                        className={`w-48 h-48 rounded-full flex flex-col items-center justify-center mx-auto ${!isPaused ? "timer-active" : ""}`}
+                        style={{
+                          background: "oklch(0.97 0.015 78)",
+                          border: `4px solid ${isPaused ? "oklch(0.48 0.19 27)" : "oklch(0.574 0.1 135)"}`,
+                        }}
+                      >
+                        <p
+                          className="font-black"
+                          style={{
+                            fontSize: 42,
+                            color: isPaused
+                              ? "oklch(0.48 0.19 27)"
+                              : "oklch(0.22 0.04 55)",
+                          }}
+                        >
+                          {formatTime(elapsedSeconds)}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {isPaused ? "Paused" : "Elapsed"}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <div
+                        className="text-center p-3 rounded-xl"
+                        style={{ background: "oklch(0.92 0.02 75)" }}
+                      >
+                        <p className="text-2xl font-black text-foreground">
+                          {distractionCount}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          Distractions
+                        </p>
+                      </div>
+                      <div
+                        className="text-center p-3 rounded-xl"
+                        style={{ background: "oklch(0.92 0.02 75)" }}
+                      >
+                        <p className="text-2xl font-black text-foreground">
+                          {subject.split(" ")[0]}
+                        </p>
+                        <p className="text-xs text-muted-foreground">Subject</p>
+                      </div>
+                    </div>
+
+                    {isPaused && (
+                      <div
+                        data-ocid="session.distraction.error_state"
+                        className="flex items-center gap-2 p-3 rounded-xl"
+                        style={{ background: "oklch(0.95 0.05 27)" }}
+                      >
+                        <AlertTriangle
+                          size={16}
+                          style={{ color: "oklch(0.48 0.19 27)" }}
+                        />
+                        <p
+                          className="text-sm font-semibold"
+                          style={{ color: "oklch(0.48 0.19 27)" }}
+                        >
+                          Distraction logged – tap Resume to continue
+                        </p>
                       </div>
                     )}
-                    <CameraErrorOverlay />
-                  </div>
-                  <Button
-                    data-ocid="session.capture_end.primary_button"
-                    onClick={handleCaptureEnd}
-                    disabled={
-                      !camera.isActive ||
-                      camera.isLoading ||
-                      completeSession.isPending
-                    }
-                    className="w-full rounded-full font-bold h-12"
-                  >
-                    {completeSession.isPending ? (
-                      <>
-                        <Loader2 className="animate-spin mr-2" size={16} />
-                        Saving session…
-                      </>
-                    ) : (
-                      <>
-                        <CheckCircle size={18} className="mr-2" />
-                        Complete Session
-                      </>
+
+                    {startPhotoPreview && (
+                      <div
+                        className="flex items-center gap-3 p-3 rounded-xl"
+                        style={{ background: "oklch(0.92 0.02 75)" }}
+                      >
+                        <img
+                          src={startPhotoPreview}
+                          alt="Setup"
+                          className="w-16 h-12 object-cover rounded-lg"
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          ✅ Setup photo captured
+                        </p>
+                      </div>
                     )}
-                  </Button>
-                </CardContent>
-              </Card>
-            </motion.div>
-          )}
 
-          {/* Phase: Complete */}
-          {phase === "complete" && (
-            <motion.div
-              key="complete"
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0 }}
-            >
-              <Card className="card-warm shadow-warm">
-                <CardContent className="pt-8 pb-8 text-center space-y-6">
-                  <div className="text-6xl">🏆</div>
-                  <div>
-                    <h2 className="text-2xl font-black text-foreground">
-                      Session Complete!
-                    </h2>
-                    <p className="text-muted-foreground">{subject}</p>
-                  </div>
-                  <div className="grid grid-cols-2 gap-4 max-w-xs mx-auto">
-                    <div className="card-warm p-4 text-center">
-                      <p className="text-3xl font-black text-primary">
-                        {formatTime(elapsedSeconds)}
-                      </p>
-                      <p className="text-xs text-muted-foreground">Studied</p>
-                    </div>
-                    <div className="card-warm p-4 text-center">
-                      <p
-                        className="text-3xl font-black"
-                        style={{
-                          color:
-                            distractionCount > 3
-                              ? "oklch(0.48 0.19 27)"
-                              : "oklch(0.574 0.1 135)",
+                    <Progress
+                      value={((elapsedSeconds % 3600) / 3600) * 100}
+                      className="h-2"
+                    />
+
+                    <div className="flex gap-3">
+                      <Button
+                        data-ocid="session.pause.toggle"
+                        variant="outline"
+                        className="flex-1 rounded-full"
+                        onClick={() => {
+                          if (!isPaused) {
+                            setIsPaused(true);
+                            setDistractionCount((c) => c + 1);
+                            setShowReasonPopup(true);
+                          } else {
+                            setIsPaused(false);
+                          }
                         }}
                       >
-                        {distractionCount}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        Distractions
-                      </p>
-                    </div>
-                  </div>
-                  {endPhotoPreview && (
-                    <img
-                      src={endPhotoPreview}
-                      alt="Notes"
-                      className="w-full max-w-xs mx-auto rounded-2xl object-cover"
-                      style={{ maxHeight: 200 }}
-                    />
-                  )}
-                  <div className="flex gap-2 justify-center">
-                    {profile?.badges?.includes("Deep Work Master") ||
-                    Number(profile?.currentStreak ?? 0) >= 7 ? (
-                      <Badge
-                        style={{
-                          background: "oklch(0.762 0.12 75)",
-                          color: "oklch(0.22 0.04 55)",
-                        }}
+                        {isPaused ? (
+                          <>
+                            <Play size={16} className="mr-2" />
+                            Resume
+                          </>
+                        ) : (
+                          <>
+                            <Pause size={16} className="mr-2" />
+                            Pause
+                          </>
+                        )}
+                      </Button>
+                      <Button
+                        data-ocid="session.end.primary_button"
+                        className="flex-1 rounded-full font-bold"
+                        onClick={handleEndSessionCamera}
                       >
-                        🏆 Deep Work Master
-                      </Badge>
-                    ) : null}
-                  </div>
-
-                  {/* Share to Community toggle */}
-                  <div
-                    className="flex items-center justify-between p-3 rounded-xl max-w-xs mx-auto"
-                    style={{ background: "oklch(0.92 0.02 75)" }}
-                  >
-                    <div className="text-left">
-                      <p className="text-sm font-semibold text-foreground">
-                        Share to Community
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        Let others see your session 🔥
-                      </p>
+                        <Square size={16} className="mr-2" />
+                        End &amp; Verify
+                      </Button>
                     </div>
-                    <Switch
-                      data-ocid="session.share_community.switch"
-                      checked={shareToCommunity}
-                      onCheckedChange={setShareToCommunity}
-                    />
-                  </div>
+                  </CardContent>
+                </Card>
+              </motion.div>
+            )}
 
-                  <Button
-                    data-ocid="session.new_session.primary_button"
-                    onClick={handleReset}
-                    className="rounded-full font-bold"
-                  >
-                    Start Another Session
-                  </Button>
-                </CardContent>
-              </Card>
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </motion.div>
-    </div>
+            {phase === "end-photo" && (
+              <motion.div
+                key="end-photo"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+              >
+                <Card className="card-warm shadow-warm">
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <CheckCircle size={18} className="text-primary" />
+                      Verify Session: Photo of Your Notes
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <p className="text-sm text-muted-foreground">
+                      Take a photo of your handwritten notes to complete the
+                      session.
+                    </p>
+                    <div
+                      className="rounded-2xl overflow-hidden bg-black relative"
+                      style={{ aspectRatio: "4/3" }}
+                    >
+                      <video
+                        ref={camera.videoRef}
+                        className="w-full h-full object-cover"
+                        playsInline
+                        muted
+                        autoPlay
+                      />
+                      <canvas ref={camera.canvasRef} className="hidden" />
+                      {camera.isLoading && (
+                        <div className="absolute inset-0 flex items-center justify-center bg-black/50">
+                          <Loader2 className="w-8 h-8 text-white animate-spin" />
+                        </div>
+                      )}
+                      <CameraErrorOverlay />
+                    </div>
+                    <Button
+                      data-ocid="session.capture_end.primary_button"
+                      onClick={handleCaptureEnd}
+                      disabled={
+                        !camera.isActive ||
+                        camera.isLoading ||
+                        completeSession.isPending
+                      }
+                      className="w-full rounded-full font-bold h-12"
+                    >
+                      {completeSession.isPending ? (
+                        <>
+                          <Loader2 className="animate-spin mr-2" size={16} />
+                          Saving session…
+                        </>
+                      ) : (
+                        <>
+                          <CheckCircle size={18} className="mr-2" />
+                          Complete Session
+                        </>
+                      )}
+                    </Button>
+                  </CardContent>
+                </Card>
+              </motion.div>
+            )}
+
+            {phase === "complete" && (
+              <motion.div
+                key="complete"
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0 }}
+              >
+                <Card className="card-warm shadow-warm">
+                  <CardContent className="pt-8 pb-8 text-center space-y-6">
+                    <div className="text-6xl">🏆</div>
+                    <div>
+                      <h2 className="text-2xl font-black text-foreground">
+                        Session Complete!
+                      </h2>
+                      <p className="text-muted-foreground">{subject}</p>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4 max-w-xs mx-auto">
+                      <div className="card-warm p-4 text-center">
+                        <p className="text-3xl font-black text-primary">
+                          {formatTime(elapsedSeconds)}
+                        </p>
+                        <p className="text-xs text-muted-foreground">Studied</p>
+                      </div>
+                      <div className="card-warm p-4 text-center">
+                        <p
+                          className="text-3xl font-black"
+                          style={{
+                            color:
+                              distractionCount > 3
+                                ? "oklch(0.48 0.19 27)"
+                                : "oklch(0.574 0.1 135)",
+                          }}
+                        >
+                          {distractionCount}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          Distractions
+                        </p>
+                      </div>
+                    </div>
+                    {endPhotoPreview && (
+                      <img
+                        src={endPhotoPreview}
+                        alt="Notes"
+                        className="w-full max-w-xs mx-auto rounded-2xl object-cover"
+                        style={{ maxHeight: 200 }}
+                      />
+                    )}
+                    <div className="flex gap-2 justify-center">
+                      {profile?.badges?.includes("Deep Work Master") ||
+                      Number(profile?.currentStreak ?? 0) >= 7 ? (
+                        <Badge
+                          style={{
+                            background: "oklch(0.762 0.12 75)",
+                            color: "oklch(0.22 0.04 55)",
+                          }}
+                        >
+                          🏆 Deep Work Master
+                        </Badge>
+                      ) : null}
+                    </div>
+
+                    <div
+                      className="flex items-center justify-between p-3 rounded-xl max-w-xs mx-auto"
+                      style={{ background: "oklch(0.92 0.02 75)" }}
+                    >
+                      <div className="text-left">
+                        <p className="text-sm font-semibold text-foreground">
+                          Share to Community
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          Let others see your session 🔥
+                        </p>
+                      </div>
+                      <Switch
+                        data-ocid="session.share_community.switch"
+                        checked={shareToCommunity}
+                        onCheckedChange={setShareToCommunity}
+                      />
+                    </div>
+
+                    <Button
+                      data-ocid="session.new_session.primary_button"
+                      onClick={handleReset}
+                      className="rounded-full font-bold"
+                    >
+                      Start Another Session
+                    </Button>
+                  </CardContent>
+                </Card>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </motion.div>
+      </div>
+    </>
   );
 }

@@ -28,7 +28,7 @@ export const PostComment = IDL.Record({
   'postId' : IDL.Text,
 });
 export const ExternalBlob = IDL.Vec(IDL.Nat8);
-export const StudySession = IDL.Record({
+export const FeedEntry = IDL.Record({
   'startTime' : IDL.Int,
   'isCompleted' : IDL.Bool,
   'endTime' : IDL.Int,
@@ -40,6 +40,8 @@ export const StudySession = IDL.Record({
 });
 export const SyllabusGoal = IDL.Record({
   'subjectName' : IDL.Text,
+  'userId' : IDL.Text,
+  'createdAt' : IDL.Int,
   'totalLectures' : IDL.Nat,
   'completedLectures' : IDL.Nat,
   'examDate' : IDL.Int,
@@ -48,6 +50,16 @@ export const UserRole = IDL.Variant({
   'admin' : IDL.Null,
   'user' : IDL.Null,
   'guest' : IDL.Null,
+});
+export const Session = IDL.Record({
+  'startTime' : IDL.Int,
+  'isCompleted' : IDL.Bool,
+  'endTime' : IDL.Int,
+  'subjectName' : IDL.Text,
+  'distractionCount' : IDL.Nat,
+  'elapsedSeconds' : IDL.Nat,
+  'endPhoto' : ExternalBlob,
+  'startPhoto' : ExternalBlob,
 });
 export const CommunityPost = IDL.Record({
   'postType' : IDL.Text,
@@ -71,15 +83,13 @@ export const Squad = IDL.Record({
   'members' : IDL.Vec(IDL.Principal),
   'name' : IDL.Text,
 });
-export const Badge = IDL.Text;
-export const DeskItem = IDL.Text;
-export const UserProfile = IDL.Record({
+export const Profile = IDL.Record({
   'displayName' : IDL.Text,
-  'badges' : IDL.Vec(Badge),
+  'badges' : IDL.Vec(IDL.Text),
   'lastStudyDate' : IDL.Text,
   'totalStudySeconds' : IDL.Nat,
   'longestStreak' : IDL.Nat,
-  'deskItems' : IDL.Vec(DeskItem),
+  'deskItems' : IDL.Vec(IDL.Text),
   'currentStreak' : IDL.Nat,
 });
 
@@ -112,17 +122,18 @@ export const idlService = IDL.Service({
   '_caffeineStorageUpdateGatewayPrincipals' : IDL.Func([], [], []),
   '_initializeAccessControlWithSecret' : IDL.Func([IDL.Text], [], []),
   'addComment' : IDL.Func([IDL.Text, IDL.Text], [PostComment], []),
-  'addStudySession' : IDL.Func([StudySession], [], []),
+  'addStudySession' : IDL.Func([FeedEntry], [], []),
   'addSyllabusGoal' : IDL.Func([SyllabusGoal], [], []),
   'assignCallerUserRole' : IDL.Func([IDL.Principal, UserRole], [], []),
-  'completeSession' : IDL.Func([StudySession], [], []),
+  'completeSession' : IDL.Func([Session], [], []),
   'createCommunityPost' : IDL.Func([CommunityPost], [], []),
   'createPost' : IDL.Func([Post], [], []),
   'createSquad' : IDL.Func([Squad], [], []),
   'deleteComment' : IDL.Func([IDL.Text], [], []),
   'deleteCommunityPost' : IDL.Func([IDL.Text], [], []),
-  'getCallerSession' : IDL.Func([], [IDL.Opt(StudySession)], ['query']),
-  'getCallerUserProfile' : IDL.Func([], [IDL.Opt(UserProfile)], ['query']),
+  'getCallerSession' : IDL.Func([], [IDL.Opt(Session)], ['query']),
+  'getCallerSyllabusGoals' : IDL.Func([], [IDL.Vec(SyllabusGoal)], ['query']),
+  'getCallerUserProfile' : IDL.Func([], [IDL.Opt(Profile)], ['query']),
   'getCallerUserRole' : IDL.Func([], [UserRole], ['query']),
   'getComments' : IDL.Func([IDL.Text], [IDL.Vec(PostComment)], ['query']),
   'getCommunityFeed' : IDL.Func([], [IDL.Vec(CommunityPost)], ['query']),
@@ -131,24 +142,20 @@ export const idlService = IDL.Service({
       [IDL.Vec(CommunityPost)],
       ['query'],
     ),
-  'getFeed' : IDL.Func([], [IDL.Vec(StudySession)], ['query']),
+  'getFeed' : IDL.Func([], [IDL.Vec(FeedEntry)], ['query']),
   'getPostLikeCount' : IDL.Func(
       [IDL.Text],
       [IDL.Record({ 'count' : IDL.Nat, 'liked' : IDL.Bool })],
       ['query'],
     ),
   'getPosts' : IDL.Func([IDL.Text], [IDL.Vec(Post)], ['query']),
-  'getStreakLeaderboard' : IDL.Func([], [IDL.Vec(UserProfile)], ['query']),
-  'getUserProfile' : IDL.Func(
-      [IDL.Principal],
-      [IDL.Opt(UserProfile)],
-      ['query'],
-    ),
-  'getWeeklyLeaderboard' : IDL.Func([], [IDL.Vec(UserProfile)], ['query']),
+  'getStreakLeaderboard' : IDL.Func([], [IDL.Vec(Profile)], ['query']),
+  'getUserProfile' : IDL.Func([IDL.Principal], [IDL.Opt(Profile)], ['query']),
+  'getWeeklyLeaderboard' : IDL.Func([], [IDL.Vec(Profile)], ['query']),
   'isCallerAdmin' : IDL.Func([], [IDL.Bool], ['query']),
   'joinSquad' : IDL.Func([IDL.Text], [], []),
-  'saveCallerUserProfile' : IDL.Func([UserProfile], [], []),
-  'startSession' : IDL.Func([StudySession], [], []),
+  'saveCallerUserProfile' : IDL.Func([Profile], [], []),
+  'startSession' : IDL.Func([Session], [], []),
   'togglePostLike' : IDL.Func([IDL.Text], [IDL.Nat], []),
 });
 
@@ -175,7 +182,7 @@ export const idlFactory = ({ IDL }) => {
     'postId' : IDL.Text,
   });
   const ExternalBlob = IDL.Vec(IDL.Nat8);
-  const StudySession = IDL.Record({
+  const FeedEntry = IDL.Record({
     'startTime' : IDL.Int,
     'isCompleted' : IDL.Bool,
     'endTime' : IDL.Int,
@@ -187,6 +194,8 @@ export const idlFactory = ({ IDL }) => {
   });
   const SyllabusGoal = IDL.Record({
     'subjectName' : IDL.Text,
+    'userId' : IDL.Text,
+    'createdAt' : IDL.Int,
     'totalLectures' : IDL.Nat,
     'completedLectures' : IDL.Nat,
     'examDate' : IDL.Int,
@@ -195,6 +204,16 @@ export const idlFactory = ({ IDL }) => {
     'admin' : IDL.Null,
     'user' : IDL.Null,
     'guest' : IDL.Null,
+  });
+  const Session = IDL.Record({
+    'startTime' : IDL.Int,
+    'isCompleted' : IDL.Bool,
+    'endTime' : IDL.Int,
+    'subjectName' : IDL.Text,
+    'distractionCount' : IDL.Nat,
+    'elapsedSeconds' : IDL.Nat,
+    'endPhoto' : ExternalBlob,
+    'startPhoto' : ExternalBlob,
   });
   const CommunityPost = IDL.Record({
     'postType' : IDL.Text,
@@ -218,15 +237,13 @@ export const idlFactory = ({ IDL }) => {
     'members' : IDL.Vec(IDL.Principal),
     'name' : IDL.Text,
   });
-  const Badge = IDL.Text;
-  const DeskItem = IDL.Text;
-  const UserProfile = IDL.Record({
+  const Profile = IDL.Record({
     'displayName' : IDL.Text,
-    'badges' : IDL.Vec(Badge),
+    'badges' : IDL.Vec(IDL.Text),
     'lastStudyDate' : IDL.Text,
     'totalStudySeconds' : IDL.Nat,
     'longestStreak' : IDL.Nat,
-    'deskItems' : IDL.Vec(DeskItem),
+    'deskItems' : IDL.Vec(IDL.Text),
     'currentStreak' : IDL.Nat,
   });
   
@@ -259,17 +276,18 @@ export const idlFactory = ({ IDL }) => {
     '_caffeineStorageUpdateGatewayPrincipals' : IDL.Func([], [], []),
     '_initializeAccessControlWithSecret' : IDL.Func([IDL.Text], [], []),
     'addComment' : IDL.Func([IDL.Text, IDL.Text], [PostComment], []),
-    'addStudySession' : IDL.Func([StudySession], [], []),
+    'addStudySession' : IDL.Func([FeedEntry], [], []),
     'addSyllabusGoal' : IDL.Func([SyllabusGoal], [], []),
     'assignCallerUserRole' : IDL.Func([IDL.Principal, UserRole], [], []),
-    'completeSession' : IDL.Func([StudySession], [], []),
+    'completeSession' : IDL.Func([Session], [], []),
     'createCommunityPost' : IDL.Func([CommunityPost], [], []),
     'createPost' : IDL.Func([Post], [], []),
     'createSquad' : IDL.Func([Squad], [], []),
     'deleteComment' : IDL.Func([IDL.Text], [], []),
     'deleteCommunityPost' : IDL.Func([IDL.Text], [], []),
-    'getCallerSession' : IDL.Func([], [IDL.Opt(StudySession)], ['query']),
-    'getCallerUserProfile' : IDL.Func([], [IDL.Opt(UserProfile)], ['query']),
+    'getCallerSession' : IDL.Func([], [IDL.Opt(Session)], ['query']),
+    'getCallerSyllabusGoals' : IDL.Func([], [IDL.Vec(SyllabusGoal)], ['query']),
+    'getCallerUserProfile' : IDL.Func([], [IDL.Opt(Profile)], ['query']),
     'getCallerUserRole' : IDL.Func([], [UserRole], ['query']),
     'getComments' : IDL.Func([IDL.Text], [IDL.Vec(PostComment)], ['query']),
     'getCommunityFeed' : IDL.Func([], [IDL.Vec(CommunityPost)], ['query']),
@@ -278,24 +296,20 @@ export const idlFactory = ({ IDL }) => {
         [IDL.Vec(CommunityPost)],
         ['query'],
       ),
-    'getFeed' : IDL.Func([], [IDL.Vec(StudySession)], ['query']),
+    'getFeed' : IDL.Func([], [IDL.Vec(FeedEntry)], ['query']),
     'getPostLikeCount' : IDL.Func(
         [IDL.Text],
         [IDL.Record({ 'count' : IDL.Nat, 'liked' : IDL.Bool })],
         ['query'],
       ),
     'getPosts' : IDL.Func([IDL.Text], [IDL.Vec(Post)], ['query']),
-    'getStreakLeaderboard' : IDL.Func([], [IDL.Vec(UserProfile)], ['query']),
-    'getUserProfile' : IDL.Func(
-        [IDL.Principal],
-        [IDL.Opt(UserProfile)],
-        ['query'],
-      ),
-    'getWeeklyLeaderboard' : IDL.Func([], [IDL.Vec(UserProfile)], ['query']),
+    'getStreakLeaderboard' : IDL.Func([], [IDL.Vec(Profile)], ['query']),
+    'getUserProfile' : IDL.Func([IDL.Principal], [IDL.Opt(Profile)], ['query']),
+    'getWeeklyLeaderboard' : IDL.Func([], [IDL.Vec(Profile)], ['query']),
     'isCallerAdmin' : IDL.Func([], [IDL.Bool], ['query']),
     'joinSquad' : IDL.Func([IDL.Text], [], []),
-    'saveCallerUserProfile' : IDL.Func([UserProfile], [], []),
-    'startSession' : IDL.Func([StudySession], [], []),
+    'saveCallerUserProfile' : IDL.Func([Profile], [], []),
+    'startSession' : IDL.Func([Session], [], []),
     'togglePostLike' : IDL.Func([IDL.Text], [IDL.Nat], []),
   });
 };

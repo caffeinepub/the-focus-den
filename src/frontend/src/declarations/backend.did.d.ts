@@ -10,7 +10,6 @@ import type { ActorMethod } from '@icp-sdk/core/agent';
 import type { IDL } from '@icp-sdk/core/candid';
 import type { Principal } from '@icp-sdk/core/principal';
 
-export type Badge = string;
 export interface CommunityPost {
   'postType' : string,
   'userName' : string,
@@ -23,8 +22,17 @@ export interface CommunityPost {
   'sessionId' : string,
   'postId' : string,
 }
-export type DeskItem = string;
 export type ExternalBlob = Uint8Array;
+export interface FeedEntry {
+  'startTime' : bigint,
+  'isCompleted' : boolean,
+  'endTime' : bigint,
+  'subjectName' : string,
+  'distractionCount' : bigint,
+  'elapsedSeconds' : bigint,
+  'endPhoto' : ExternalBlob,
+  'startPhoto' : ExternalBlob,
+}
 export interface Post {
   'title' : string,
   'subjectName' : string,
@@ -39,8 +47,16 @@ export interface PostComment {
   'text' : string,
   'postId' : string,
 }
-export interface Squad { 'members' : Array<Principal>, 'name' : string }
-export interface StudySession {
+export interface Profile {
+  'displayName' : string,
+  'badges' : Array<string>,
+  'lastStudyDate' : string,
+  'totalStudySeconds' : bigint,
+  'longestStreak' : bigint,
+  'deskItems' : Array<string>,
+  'currentStreak' : bigint,
+}
+export interface Session {
   'startTime' : bigint,
   'isCompleted' : boolean,
   'endTime' : bigint,
@@ -50,20 +66,14 @@ export interface StudySession {
   'endPhoto' : ExternalBlob,
   'startPhoto' : ExternalBlob,
 }
+export interface Squad { 'members' : Array<Principal>, 'name' : string }
 export interface SyllabusGoal {
   'subjectName' : string,
+  'userId' : string,
+  'createdAt' : bigint,
   'totalLectures' : bigint,
   'completedLectures' : bigint,
   'examDate' : bigint,
-}
-export interface UserProfile {
-  'displayName' : string,
-  'badges' : Array<Badge>,
-  'lastStudyDate' : string,
-  'totalStudySeconds' : bigint,
-  'longestStreak' : bigint,
-  'deskItems' : Array<DeskItem>,
-  'currentStreak' : bigint,
 }
 export type UserRole = { 'admin' : null } |
   { 'user' : null } |
@@ -97,34 +107,35 @@ export interface _SERVICE {
   '_caffeineStorageUpdateGatewayPrincipals' : ActorMethod<[], undefined>,
   '_initializeAccessControlWithSecret' : ActorMethod<[string], undefined>,
   'addComment' : ActorMethod<[string, string], PostComment>,
-  'addStudySession' : ActorMethod<[StudySession], undefined>,
+  'addStudySession' : ActorMethod<[FeedEntry], undefined>,
   'addSyllabusGoal' : ActorMethod<[SyllabusGoal], undefined>,
   'assignCallerUserRole' : ActorMethod<[Principal, UserRole], undefined>,
-  'completeSession' : ActorMethod<[StudySession], undefined>,
+  'completeSession' : ActorMethod<[Session], undefined>,
   'createCommunityPost' : ActorMethod<[CommunityPost], undefined>,
   'createPost' : ActorMethod<[Post], undefined>,
   'createSquad' : ActorMethod<[Squad], undefined>,
   'deleteComment' : ActorMethod<[string], undefined>,
   'deleteCommunityPost' : ActorMethod<[string], undefined>,
-  'getCallerSession' : ActorMethod<[], [] | [StudySession]>,
-  'getCallerUserProfile' : ActorMethod<[], [] | [UserProfile]>,
+  'getCallerSession' : ActorMethod<[], [] | [Session]>,
+  'getCallerSyllabusGoals' : ActorMethod<[], Array<SyllabusGoal>>,
+  'getCallerUserProfile' : ActorMethod<[], [] | [Profile]>,
   'getCallerUserRole' : ActorMethod<[], UserRole>,
   'getComments' : ActorMethod<[string], Array<PostComment>>,
   'getCommunityFeed' : ActorMethod<[], Array<CommunityPost>>,
   'getCommunityFeedWithAuth' : ActorMethod<[], Array<CommunityPost>>,
-  'getFeed' : ActorMethod<[], Array<StudySession>>,
+  'getFeed' : ActorMethod<[], Array<FeedEntry>>,
   'getPostLikeCount' : ActorMethod<
     [string],
     { 'count' : bigint, 'liked' : boolean }
   >,
   'getPosts' : ActorMethod<[string], Array<Post>>,
-  'getStreakLeaderboard' : ActorMethod<[], Array<UserProfile>>,
-  'getUserProfile' : ActorMethod<[Principal], [] | [UserProfile]>,
-  'getWeeklyLeaderboard' : ActorMethod<[], Array<UserProfile>>,
+  'getStreakLeaderboard' : ActorMethod<[], Array<Profile>>,
+  'getUserProfile' : ActorMethod<[Principal], [] | [Profile]>,
+  'getWeeklyLeaderboard' : ActorMethod<[], Array<Profile>>,
   'isCallerAdmin' : ActorMethod<[], boolean>,
   'joinSquad' : ActorMethod<[string], undefined>,
-  'saveCallerUserProfile' : ActorMethod<[UserProfile], undefined>,
-  'startSession' : ActorMethod<[StudySession], undefined>,
+  'saveCallerUserProfile' : ActorMethod<[Profile], undefined>,
+  'startSession' : ActorMethod<[Session], undefined>,
   'togglePostLike' : ActorMethod<[string], bigint>,
 }
 export declare const idlService: IDL.ServiceClass;

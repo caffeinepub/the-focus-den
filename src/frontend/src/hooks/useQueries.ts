@@ -1,18 +1,29 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
   CommunityPost,
+  FeedEntry,
   Post,
   PostComment,
+  Profile,
+  Session,
   Squad,
-  StudySession,
   SyllabusGoal,
-  UserProfile,
 } from "../backend";
 import { useActor } from "./useActor";
 
+// SquadMessage type — defined locally until backend regeneration includes it
+export interface SquadMessage {
+  messageId: string;
+  squadId: string;
+  userId: string;
+  userName: string;
+  messageText: string;
+  createdAt: bigint;
+}
+
 export function useGetCallerUserProfile() {
   const { actor, isFetching: actorFetching } = useActor();
-  const query = useQuery<UserProfile | null>({
+  const query = useQuery<Profile | null>({
     queryKey: ["currentUserProfile"],
     queryFn: async () => {
       if (!actor) throw new Error("Actor not available");
@@ -30,7 +41,7 @@ export function useGetCallerUserProfile() {
 
 export function useGetCallerSession() {
   const { actor, isFetching } = useActor();
-  return useQuery<StudySession | null>({
+  return useQuery<Session | null>({
     queryKey: ["callerSession"],
     queryFn: async () => {
       if (!actor) return null;
@@ -42,7 +53,7 @@ export function useGetCallerSession() {
 
 export function useGetFeed() {
   const { actor, isFetching } = useActor();
-  return useQuery<StudySession[]>({
+  return useQuery<FeedEntry[]>({
     queryKey: ["feed"],
     queryFn: async () => {
       if (!actor) return [];
@@ -160,7 +171,7 @@ export function useDeleteComment() {
 
 export function useGetWeeklyLeaderboard() {
   const { actor, isFetching } = useActor();
-  return useQuery<UserProfile[]>({
+  return useQuery<Profile[]>({
     queryKey: ["weeklyLeaderboard"],
     queryFn: async () => {
       if (!actor) return [];
@@ -172,7 +183,7 @@ export function useGetWeeklyLeaderboard() {
 
 export function useGetStreakLeaderboard() {
   const { actor, isFetching } = useActor();
-  return useQuery<UserProfile[]>({
+  return useQuery<Profile[]>({
     queryKey: ["streakLeaderboard"],
     queryFn: async () => {
       if (!actor) return [];
@@ -198,7 +209,7 @@ export function useSaveProfile() {
   const { actor } = useActor();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (profile: UserProfile) => {
+    mutationFn: async (profile: Profile) => {
       if (!actor) throw new Error("No actor");
       await actor.saveCallerUserProfile(profile);
     },
@@ -210,7 +221,7 @@ export function useStartSession() {
   const { actor } = useActor();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (session: StudySession) => {
+    mutationFn: async (session: Session) => {
       if (!actor) throw new Error("No actor");
       await actor.startSession(session);
     },
@@ -222,7 +233,7 @@ export function useCompleteSession() {
   const { actor } = useActor();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (session: StudySession) => {
+    mutationFn: async (session: Session) => {
       if (!actor) throw new Error("No actor");
       await actor.completeSession(session);
     },
@@ -234,13 +245,28 @@ export function useCompleteSession() {
   });
 }
 
+export function useGetCallerSyllabusGoals() {
+  const { actor, isFetching } = useActor();
+  return useQuery<SyllabusGoal[]>({
+    queryKey: ["callerSyllabusGoals"],
+    queryFn: async () => {
+      if (!actor) return [];
+      return actor.getCallerSyllabusGoals();
+    },
+    enabled: !!actor && !isFetching,
+  });
+}
+
 export function useAddSyllabusGoal() {
   const { actor } = useActor();
+  const qc = useQueryClient();
   return useMutation({
     mutationFn: async (goal: SyllabusGoal) => {
       if (!actor) throw new Error("No actor");
       await actor.addSyllabusGoal(goal);
     },
+    onSuccess: () =>
+      qc.invalidateQueries({ queryKey: ["callerSyllabusGoals"] }),
   });
 }
 
@@ -273,6 +299,42 @@ export function useJoinSquad() {
     mutationFn: async (name: string) => {
       if (!actor) throw new Error("No actor");
       await actor.joinSquad(name);
+    },
+  });
+}
+
+export function useGetSquadMessages(squadId: string) {
+  const { actor, isFetching } = useActor();
+  return useQuery<SquadMessage[]>({
+    queryKey: ["squadMessages", squadId],
+    queryFn: async () => {
+      if (!actor || !squadId) return [];
+      const a = actor as any;
+      if (typeof a.getSquadMessages !== "function") return [];
+      return a.getSquadMessages(squadId) as Promise<SquadMessage[]>;
+    },
+    enabled: !!actor && !isFetching && !!squadId,
+    refetchInterval: 5000,
+  });
+}
+
+export function useSendSquadMessage() {
+  const { actor } = useActor();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      squadId,
+      messageText,
+    }: { squadId: string; messageText: string }) => {
+      if (!actor) throw new Error("No actor");
+      const a = actor as any;
+      if (typeof a.sendSquadMessage !== "function") {
+        throw new Error("Squad messaging not available yet");
+      }
+      return a.sendSquadMessage(squadId, messageText) as Promise<SquadMessage>;
+    },
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: ["squadMessages", vars.squadId] });
     },
   });
 }

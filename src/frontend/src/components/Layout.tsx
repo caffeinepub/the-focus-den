@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 import type { ReactNode } from "react";
 import type { Page } from "../App";
-import type { UserProfile } from "../backend";
+import type { Profile } from "../backend";
 
 interface NavItem {
   id: Page;
@@ -35,7 +35,7 @@ const NAV_ITEMS: NavItem[] = [
 interface Props {
   activePage: Page;
   onNavigate: (p: Page) => void;
-  userProfile: UserProfile | null;
+  userProfile: Profile | null;
   children: ReactNode;
 }
 

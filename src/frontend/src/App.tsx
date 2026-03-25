@@ -4,7 +4,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { useQueryClient } from "@tanstack/react-query";
 import { BookOpen, Loader2 } from "lucide-react";
 import { type ReactElement, useState } from "react";
-import type { UserProfile } from "./backend";
+import type { Profile } from "./backend";
 import Layout from "./components/Layout";
 import { useInternetIdentity } from "./hooks/useInternetIdentity";
 import { useGetCallerUserProfile, useSaveProfile } from "./hooks/useQueries";
@@ -13,7 +13,7 @@ import Dashboard from "./pages/Dashboard";
 import Leaderboard from "./pages/Leaderboard";
 import MyDesk from "./pages/MyDesk";
 import MySquad from "./pages/MySquad";
-import Profile from "./pages/Profile";
+import ProfilePage from "./pages/Profile";
 import StudySession from "./pages/StudySession";
 import SubjectRooms from "./pages/SubjectRooms";
 import SyllabusMap from "./pages/SyllabusMap";
@@ -56,7 +56,7 @@ export default function App() {
 
   const handleSetupProfile = async () => {
     if (!setupName.trim()) return;
-    const profile: UserProfile = {
+    const profile: Profile = {
       displayName: setupName.trim(),
       badges: [],
       lastStudyDate: new Date().toISOString().split("T")[0],
@@ -207,7 +207,7 @@ export default function App() {
     rooms: <SubjectRooms />,
     leaderboard: <Leaderboard />,
     desk: <MyDesk />,
-    profile: <Profile onLogout={handleLogout} />,
+    profile: <ProfilePage onLogout={handleLogout} />,
   };
 
   return (

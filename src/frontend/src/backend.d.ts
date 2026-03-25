@@ -26,32 +26,7 @@ export interface CommunityPost {
     sessionId: string;
     postId: string;
 }
-export type Badge = string;
-export interface SyllabusGoal {
-    subjectName: string;
-    totalLectures: bigint;
-    completedLectures: bigint;
-    examDate: bigint;
-}
-export interface Squad {
-    members: Array<Principal>;
-    name: string;
-}
-export interface Post {
-    title: string;
-    subjectName: string;
-    body: string;
-    author: Principal;
-}
-export interface PostComment {
-    userName: string;
-    commentId: string;
-    userId: string;
-    createdAt: bigint;
-    text: string;
-    postId: string;
-}
-export interface StudySession {
+export interface Session {
     startTime: bigint;
     isCompleted: boolean;
     endTime: bigint;
@@ -61,15 +36,58 @@ export interface StudySession {
     endPhoto: ExternalBlob;
     startPhoto: ExternalBlob;
 }
-export type DeskItem = string;
-export interface UserProfile {
+export interface Squad {
+    members: Array<Principal>;
+    name: string;
+}
+export interface PostComment {
+    userName: string;
+    commentId: string;
+    userId: string;
+    createdAt: bigint;
+    text: string;
+    postId: string;
+}
+export interface Post {
+    title: string;
+    subjectName: string;
+    body: string;
+    author: Principal;
+}
+export interface Profile {
     displayName: string;
-    badges: Array<Badge>;
+    badges: Array<string>;
     lastStudyDate: string;
     totalStudySeconds: bigint;
     longestStreak: bigint;
-    deskItems: Array<DeskItem>;
+    deskItems: Array<string>;
     currentStreak: bigint;
+}
+export interface FeedEntry {
+    startTime: bigint;
+    isCompleted: boolean;
+    endTime: bigint;
+    subjectName: string;
+    distractionCount: bigint;
+    elapsedSeconds: bigint;
+    endPhoto: ExternalBlob;
+    startPhoto: ExternalBlob;
+}
+export interface SyllabusGoal {
+    subjectName: string;
+    userId: string;
+    createdAt: bigint;
+    totalLectures: bigint;
+    completedLectures: bigint;
+    examDate: bigint;
+}
+export interface SquadMessage {
+    messageId: string;
+    squadId: string;
+    userId: string;
+    userName: string;
+    messageText: string;
+    createdAt: bigint;
 }
 export enum UserRole {
     admin = "admin",
@@ -78,33 +96,36 @@ export enum UserRole {
 }
 export interface backendInterface {
     addComment(postId: string, text: string): Promise<PostComment>;
-    addStudySession(studySession: StudySession): Promise<void>;
+    addStudySession(studySession: FeedEntry): Promise<void>;
     addSyllabusGoal(syllabusGoal: SyllabusGoal): Promise<void>;
     assignCallerUserRole(user: Principal, role: UserRole): Promise<void>;
-    completeSession(session: StudySession): Promise<void>;
+    completeSession(session: Session): Promise<void>;
     createCommunityPost(post: CommunityPost): Promise<void>;
     createPost(publishPost: Post): Promise<void>;
     createSquad(squad: Squad): Promise<void>;
     deleteComment(commentId: string): Promise<void>;
     deleteCommunityPost(postId: string): Promise<void>;
-    getCallerSession(): Promise<StudySession | null>;
-    getCallerUserProfile(): Promise<UserProfile | null>;
+    getCallerSession(): Promise<Session | null>;
+    getCallerSyllabusGoals(): Promise<Array<SyllabusGoal>>;
+    getCallerUserProfile(): Promise<Profile | null>;
     getCallerUserRole(): Promise<UserRole>;
     getComments(postId: string): Promise<Array<PostComment>>;
     getCommunityFeed(): Promise<Array<CommunityPost>>;
     getCommunityFeedWithAuth(): Promise<Array<CommunityPost>>;
-    getFeed(): Promise<Array<StudySession>>;
+    getFeed(): Promise<Array<FeedEntry>>;
     getPostLikeCount(postId: string): Promise<{
         count: bigint;
         liked: boolean;
     }>;
     getPosts(subjectName: string): Promise<Array<Post>>;
-    getStreakLeaderboard(): Promise<Array<UserProfile>>;
-    getUserProfile(user: Principal): Promise<UserProfile | null>;
-    getWeeklyLeaderboard(): Promise<Array<UserProfile>>;
+    getSquadMessages(squadId: string): Promise<Array<SquadMessage>>;
+    getStreakLeaderboard(): Promise<Array<Profile>>;
+    getUserProfile(user: Principal): Promise<Profile | null>;
+    getWeeklyLeaderboard(): Promise<Array<Profile>>;
     isCallerAdmin(): Promise<boolean>;
     joinSquad(squadName: string): Promise<void>;
-    saveCallerUserProfile(profile: UserProfile): Promise<void>;
-    startSession(session: StudySession): Promise<void>;
+    saveCallerUserProfile(profile: Profile): Promise<void>;
+    sendSquadMessage(squadId: string, messageText: string): Promise<SquadMessage>;
+    startSession(session: Session): Promise<void>;
     togglePostLike(postId: string): Promise<bigint>;
 }

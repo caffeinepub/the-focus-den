@@ -9,12 +9,15 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Progress } from "@/components/ui/progress";
+import { Label } from "@/components/ui/label";
 import { AlertTriangle, Loader2, Plus, Target } from "lucide-react";
 import { motion } from "motion/react";
 import { useState } from "react";
 import { toast } from "sonner";
-import { useAddSyllabusGoal } from "../hooks/useQueries";
+import {
+  useAddSyllabusGoal,
+  useGetCallerSyllabusGoals,
+} from "../hooks/useQueries";
 
 interface LocalGoal {
   subjectName: string;
@@ -40,7 +43,6 @@ function calcGhostPace(goal: LocalGoal): {
 }
 
 export default function SyllabusMap() {
-  const [goals, setGoals] = useState<LocalGoal[]>([]);
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({
     subjectName: "",
@@ -48,25 +50,45 @@ export default function SyllabusMap() {
     completedLectures: "0",
     examDate: "",
   });
+
   const addGoal = useAddSyllabusGoal();
+  const { data: backendGoals = [], isLoading } = useGetCallerSyllabusGoals();
+
+  // Map backend SyllabusGoal (bigint fields) → LocalGoal for display
+  const goals: LocalGoal[] = backendGoals.map((g) => ({
+    subjectName: g.subjectName,
+    totalLectures: Number(g.totalLectures),
+    completedLectures: Number(g.completedLectures),
+    examDate: new Date(Number(g.examDate)).toISOString().slice(0, 10),
+  }));
 
   const handleAdd = async () => {
-    if (!form.subjectName || !form.totalLectures || !form.examDate) return;
-    const newGoal: LocalGoal = {
-      subjectName: form.subjectName,
-      totalLectures: Number(form.totalLectures),
-      completedLectures: Number(form.completedLectures),
-      examDate: form.examDate,
-    };
+    const total = Number(form.totalLectures);
+    const completed = Number(form.completedLectures);
+
+    if (!form.subjectName.trim()) {
+      toast.error("Subject name is required");
+      return;
+    }
+    if (!total || total <= 0) {
+      toast.error("Total lectures must be greater than 0");
+      return;
+    }
+    if (completed > total) {
+      toast.error("Completed lectures cannot exceed total lectures");
+      return;
+    }
+
     try {
       await addGoal.mutateAsync({
-        subjectName: newGoal.subjectName,
-        totalLectures: BigInt(newGoal.totalLectures),
-        completedLectures: BigInt(newGoal.completedLectures),
-        examDate: BigInt(new Date(newGoal.examDate).getTime()),
+        subjectName: form.subjectName.trim(),
+        totalLectures: BigInt(total),
+        completedLectures: BigInt(completed),
+        examDate: BigInt(new Date(form.examDate).getTime()),
+        userId: "",
+        createdAt: BigInt(0),
       });
-      setGoals((prev) => [...prev, newGoal]);
-      toast.success(`Goal for "${newGoal.subjectName}" added!`);
+      toast.success(`Goal for "${form.subjectName.trim()}" saved!`);
       setOpen(false);
       setForm({
         subjectName: "",
@@ -77,22 +99,6 @@ export default function SyllabusMap() {
     } catch {
       toast.error("Failed to save goal");
     }
-  };
-
-  const handleUpdateLectures = (idx: number, delta: number) => {
-    setGoals((prev) =>
-      prev.map((g, i) =>
-        i === idx
-          ? {
-              ...g,
-              completedLectures: Math.min(
-                g.totalLectures,
-                Math.max(0, g.completedLectures + delta),
-              ),
-            }
-          : g,
-      ),
-    );
   };
 
   return (
@@ -124,54 +130,81 @@ export default function SyllabusMap() {
             <DialogHeader>
               <DialogTitle>New Syllabus Goal</DialogTitle>
             </DialogHeader>
-            <div className="space-y-3 pt-2">
-              <Input
-                data-ocid="syllabus.subject.input"
-                placeholder="Subject name"
-                value={form.subjectName}
-                onChange={(e) =>
-                  setForm((f) => ({ ...f, subjectName: e.target.value }))
-                }
-                className="rounded-xl"
-              />
-              <Input
-                data-ocid="syllabus.total_lectures.input"
-                placeholder="Total lectures"
-                type="number"
-                value={form.totalLectures}
-                onChange={(e) =>
-                  setForm((f) => ({ ...f, totalLectures: e.target.value }))
-                }
-                className="rounded-xl"
-              />
-              <Input
-                data-ocid="syllabus.completed_lectures.input"
-                placeholder="Completed so far"
-                type="number"
-                value={form.completedLectures}
-                onChange={(e) =>
-                  setForm((f) => ({ ...f, completedLectures: e.target.value }))
-                }
-                className="rounded-xl"
-              />
-              <Input
-                data-ocid="syllabus.exam_date.input"
-                type="date"
-                value={form.examDate}
-                onChange={(e) =>
-                  setForm((f) => ({ ...f, examDate: e.target.value }))
-                }
-                className="rounded-xl"
-              />
+            <div className="space-y-4 pt-2">
+              {/* Subject Name */}
+              <div className="space-y-1.5">
+                <Label htmlFor="syllabus-subject">Subject Name</Label>
+                <Input
+                  id="syllabus-subject"
+                  data-ocid="syllabus.subject.input"
+                  type="text"
+                  placeholder="Enter subject name"
+                  value={form.subjectName}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, subjectName: e.target.value }))
+                  }
+                  className="rounded-xl"
+                />
+              </div>
+
+              {/* Total Lectures */}
+              <div className="space-y-1.5">
+                <Label htmlFor="syllabus-total">Total Lectures / Topics</Label>
+                <Input
+                  id="syllabus-total"
+                  data-ocid="syllabus.total_lectures.input"
+                  type="number"
+                  placeholder="Enter total lectures"
+                  min="1"
+                  value={form.totalLectures}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, totalLectures: e.target.value }))
+                  }
+                  className="rounded-xl"
+                />
+              </div>
+
+              {/* Completed Lectures */}
+              <div className="space-y-1.5">
+                <Label htmlFor="syllabus-completed">
+                  Completed Lectures / Topics
+                </Label>
+                <Input
+                  id="syllabus-completed"
+                  data-ocid="syllabus.completed_lectures.input"
+                  type="number"
+                  placeholder="0"
+                  min="0"
+                  value={form.completedLectures}
+                  onChange={(e) =>
+                    setForm((f) => ({
+                      ...f,
+                      completedLectures: e.target.value,
+                    }))
+                  }
+                  className="rounded-xl"
+                />
+              </div>
+
+              {/* Exam Date */}
+              <div className="space-y-1.5">
+                <Label htmlFor="syllabus-exam">Exam Date</Label>
+                <Input
+                  id="syllabus-exam"
+                  data-ocid="syllabus.exam_date.input"
+                  type="date"
+                  value={form.examDate}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, examDate: e.target.value }))
+                  }
+                  className="rounded-xl"
+                />
+              </div>
+
               <Button
                 data-ocid="syllabus.save.submit_button"
                 onClick={handleAdd}
-                disabled={
-                  !form.subjectName ||
-                  !form.totalLectures ||
-                  !form.examDate ||
-                  addGoal.isPending
-                }
+                disabled={addGoal.isPending}
                 className="w-full rounded-full font-bold"
               >
                 {addGoal.isPending ? (
@@ -188,8 +221,18 @@ export default function SyllabusMap() {
         </Dialog>
       </motion.div>
 
+      {/* Loading state */}
+      {isLoading && (
+        <div
+          data-ocid="syllabus.loading_state"
+          className="flex items-center justify-center py-16"
+        >
+          <Loader2 className="animate-spin text-primary" size={32} />
+        </div>
+      )}
+
       {/* Goals list or empty state */}
-      {goals.length === 0 ? (
+      {!isLoading && goals.length === 0 && (
         <motion.div
           data-ocid="syllabus.empty_state"
           initial={{ opacity: 0, y: 10 }}
@@ -204,7 +247,9 @@ export default function SyllabusMap() {
             Add your first syllabus goal to start tracking.
           </p>
         </motion.div>
-      ) : (
+      )}
+
+      {!isLoading && goals.length > 0 && (
         <div className="space-y-4">
           {goals.map((goal, idx) => {
             const { targetByNow, isBehind } = calcGhostPace(goal);
@@ -222,7 +267,7 @@ export default function SyllabusMap() {
             );
             return (
               <motion.div
-                key={goal.subjectName}
+                key={`${goal.subjectName}-${idx}`}
                 data-ocid={`syllabus.item.${idx + 1}`}
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -317,29 +362,6 @@ export default function SyllabusMap() {
                         catch up.
                       </div>
                     )}
-
-                    <div className="flex items-center gap-2">
-                      <Button
-                        data-ocid={`syllabus.item.${idx + 1}.secondary_button`}
-                        variant="outline"
-                        size="sm"
-                        className="rounded-full h-7 px-3 text-xs"
-                        onClick={() => handleUpdateLectures(idx, -1)}
-                      >
-                        −
-                      </Button>
-                      <span className="text-sm font-bold flex-1 text-center">
-                        {goal.completedLectures} completed
-                      </span>
-                      <Button
-                        data-ocid={`syllabus.item.${idx + 1}.primary_button`}
-                        size="sm"
-                        className="rounded-full h-7 px-3 text-xs"
-                        onClick={() => handleUpdateLectures(idx, 1)}
-                      >
-                        +1 Lecture
-                      </Button>
-                    </div>
                   </CardContent>
                 </Card>
               </motion.div>

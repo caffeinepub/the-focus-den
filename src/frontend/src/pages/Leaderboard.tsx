@@ -5,7 +5,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Flame, Trophy } from "lucide-react";
 import { motion } from "motion/react";
-import type { UserProfile } from "../backend";
+import type { Profile } from "../backend";
 import {
   useGetStreakLeaderboard,
   useGetWeeklyLeaderboard,
@@ -17,7 +17,7 @@ const RANK_EMOJIS = ["🥇", "🥈", "🥉"];
 function LeaderboardList({
   users,
   valueKey,
-}: { users: UserProfile[]; valueKey: "hours" | "streak" }) {
+}: { users: Profile[]; valueKey: "hours" | "streak" }) {
   if (users.length === 0) {
     return (
       <div

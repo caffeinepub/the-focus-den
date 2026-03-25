@@ -89,13 +89,6 @@ export class ExternalBlob {
         return this;
     }
 }
-export interface _CaffeineStorageRefillInformation {
-    proposed_top_up_amount?: bigint;
-}
-export interface _CaffeineStorageCreateCertificateResult {
-    method: string;
-    blob_hash: string;
-}
 export interface CommunityPost {
     postType: string;
     userName: string;
@@ -108,32 +101,7 @@ export interface CommunityPost {
     sessionId: string;
     postId: string;
 }
-export type Badge = string;
-export interface SyllabusGoal {
-    subjectName: string;
-    totalLectures: bigint;
-    completedLectures: bigint;
-    examDate: bigint;
-}
-export interface Squad {
-    members: Array<Principal>;
-    name: string;
-}
-export interface Post {
-    title: string;
-    subjectName: string;
-    body: string;
-    author: Principal;
-}
-export interface PostComment {
-    userName: string;
-    commentId: string;
-    userId: string;
-    createdAt: bigint;
-    text: string;
-    postId: string;
-}
-export interface StudySession {
+export interface Session {
     startTime: bigint;
     isCompleted: boolean;
     endTime: bigint;
@@ -143,19 +111,61 @@ export interface StudySession {
     endPhoto: ExternalBlob;
     startPhoto: ExternalBlob;
 }
-export type DeskItem = string;
-export interface _CaffeineStorageRefillResult {
-    success?: boolean;
-    topped_up_amount?: bigint;
+export interface Squad {
+    members: Array<Principal>;
+    name: string;
 }
-export interface UserProfile {
+export interface _CaffeineStorageRefillInformation {
+    proposed_top_up_amount?: bigint;
+}
+export interface PostComment {
+    userName: string;
+    commentId: string;
+    userId: string;
+    createdAt: bigint;
+    text: string;
+    postId: string;
+}
+export interface Post {
+    title: string;
+    subjectName: string;
+    body: string;
+    author: Principal;
+}
+export interface _CaffeineStorageCreateCertificateResult {
+    method: string;
+    blob_hash: string;
+}
+export interface Profile {
     displayName: string;
-    badges: Array<Badge>;
+    badges: Array<string>;
     lastStudyDate: string;
     totalStudySeconds: bigint;
     longestStreak: bigint;
-    deskItems: Array<DeskItem>;
+    deskItems: Array<string>;
     currentStreak: bigint;
+}
+export interface FeedEntry {
+    startTime: bigint;
+    isCompleted: boolean;
+    endTime: bigint;
+    subjectName: string;
+    distractionCount: bigint;
+    elapsedSeconds: bigint;
+    endPhoto: ExternalBlob;
+    startPhoto: ExternalBlob;
+}
+export interface SyllabusGoal {
+    subjectName: string;
+    userId: string;
+    createdAt: bigint;
+    totalLectures: bigint;
+    completedLectures: bigint;
+    examDate: bigint;
+}
+export interface _CaffeineStorageRefillResult {
+    success?: boolean;
+    topped_up_amount?: bigint;
 }
 export enum UserRole {
     admin = "admin",
@@ -171,37 +181,38 @@ export interface backendInterface {
     _caffeineStorageUpdateGatewayPrincipals(): Promise<void>;
     _initializeAccessControlWithSecret(userSecret: string): Promise<void>;
     addComment(postId: string, text: string): Promise<PostComment>;
-    addStudySession(studySession: StudySession): Promise<void>;
+    addStudySession(studySession: FeedEntry): Promise<void>;
     addSyllabusGoal(syllabusGoal: SyllabusGoal): Promise<void>;
     assignCallerUserRole(user: Principal, role: UserRole): Promise<void>;
-    completeSession(session: StudySession): Promise<void>;
+    completeSession(session: Session): Promise<void>;
     createCommunityPost(post: CommunityPost): Promise<void>;
     createPost(publishPost: Post): Promise<void>;
     createSquad(squad: Squad): Promise<void>;
     deleteComment(commentId: string): Promise<void>;
     deleteCommunityPost(postId: string): Promise<void>;
-    getCallerSession(): Promise<StudySession | null>;
-    getCallerUserProfile(): Promise<UserProfile | null>;
+    getCallerSession(): Promise<Session | null>;
+    getCallerSyllabusGoals(): Promise<Array<SyllabusGoal>>;
+    getCallerUserProfile(): Promise<Profile | null>;
     getCallerUserRole(): Promise<UserRole>;
     getComments(postId: string): Promise<Array<PostComment>>;
     getCommunityFeed(): Promise<Array<CommunityPost>>;
     getCommunityFeedWithAuth(): Promise<Array<CommunityPost>>;
-    getFeed(): Promise<Array<StudySession>>;
+    getFeed(): Promise<Array<FeedEntry>>;
     getPostLikeCount(postId: string): Promise<{
         count: bigint;
         liked: boolean;
     }>;
     getPosts(subjectName: string): Promise<Array<Post>>;
-    getStreakLeaderboard(): Promise<Array<UserProfile>>;
-    getUserProfile(user: Principal): Promise<UserProfile | null>;
-    getWeeklyLeaderboard(): Promise<Array<UserProfile>>;
+    getStreakLeaderboard(): Promise<Array<Profile>>;
+    getUserProfile(user: Principal): Promise<Profile | null>;
+    getWeeklyLeaderboard(): Promise<Array<Profile>>;
     isCallerAdmin(): Promise<boolean>;
     joinSquad(squadName: string): Promise<void>;
-    saveCallerUserProfile(profile: UserProfile): Promise<void>;
-    startSession(session: StudySession): Promise<void>;
+    saveCallerUserProfile(profile: Profile): Promise<void>;
+    startSession(session: Session): Promise<void>;
     togglePostLike(postId: string): Promise<bigint>;
 }
-import type { ExternalBlob as _ExternalBlob, StudySession as _StudySession, UserProfile as _UserProfile, UserRole as _UserRole, _CaffeineStorageRefillInformation as __CaffeineStorageRefillInformation, _CaffeineStorageRefillResult as __CaffeineStorageRefillResult } from "./declarations/backend.did.d.ts";
+import type { ExternalBlob as _ExternalBlob, FeedEntry as _FeedEntry, Profile as _Profile, Session as _Session, UserRole as _UserRole, _CaffeineStorageRefillInformation as __CaffeineStorageRefillInformation, _CaffeineStorageRefillResult as __CaffeineStorageRefillResult } from "./declarations/backend.did.d.ts";
 export class Backend implements backendInterface {
     constructor(private actor: ActorSubclass<_SERVICE>, private _uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, private _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, private processError?: (error: unknown) => never){}
     async _caffeineStorageBlobIsLive(arg0: Uint8Array): Promise<boolean> {
@@ -316,17 +327,17 @@ export class Backend implements backendInterface {
             return result;
         }
     }
-    async addStudySession(arg0: StudySession): Promise<void> {
+    async addStudySession(arg0: FeedEntry): Promise<void> {
         if (this.processError) {
             try {
-                const result = await this.actor.addStudySession(await to_candid_StudySession_n8(this._uploadFile, this._downloadFile, arg0));
+                const result = await this.actor.addStudySession(await to_candid_FeedEntry_n8(this._uploadFile, this._downloadFile, arg0));
                 return result;
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
-            const result = await this.actor.addStudySession(await to_candid_StudySession_n8(this._uploadFile, this._downloadFile, arg0));
+            const result = await this.actor.addStudySession(await to_candid_FeedEntry_n8(this._uploadFile, this._downloadFile, arg0));
             return result;
         }
     }
@@ -358,17 +369,17 @@ export class Backend implements backendInterface {
             return result;
         }
     }
-    async completeSession(arg0: StudySession): Promise<void> {
+    async completeSession(arg0: Session): Promise<void> {
         if (this.processError) {
             try {
-                const result = await this.actor.completeSession(await to_candid_StudySession_n8(this._uploadFile, this._downloadFile, arg0));
+                const result = await this.actor.completeSession(await to_candid_Session_n13(this._uploadFile, this._downloadFile, arg0));
                 return result;
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
-            const result = await this.actor.completeSession(await to_candid_StudySession_n8(this._uploadFile, this._downloadFile, arg0));
+            const result = await this.actor.completeSession(await to_candid_Session_n13(this._uploadFile, this._downloadFile, arg0));
             return result;
         }
     }
@@ -442,46 +453,60 @@ export class Backend implements backendInterface {
             return result;
         }
     }
-    async getCallerSession(): Promise<StudySession | null> {
+    async getCallerSession(): Promise<Session | null> {
         if (this.processError) {
             try {
                 const result = await this.actor.getCallerSession();
-                return from_candid_opt_n13(this._uploadFile, this._downloadFile, result);
+                return from_candid_opt_n14(this._uploadFile, this._downloadFile, result);
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
             const result = await this.actor.getCallerSession();
-            return from_candid_opt_n13(this._uploadFile, this._downloadFile, result);
+            return from_candid_opt_n14(this._uploadFile, this._downloadFile, result);
         }
     }
-    async getCallerUserProfile(): Promise<UserProfile | null> {
+    async getCallerSyllabusGoals(): Promise<Array<SyllabusGoal>> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.getCallerSyllabusGoals();
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.getCallerSyllabusGoals();
+            return result;
+        }
+    }
+    async getCallerUserProfile(): Promise<Profile | null> {
         if (this.processError) {
             try {
                 const result = await this.actor.getCallerUserProfile();
-                return from_candid_opt_n17(this._uploadFile, this._downloadFile, result);
+                return from_candid_opt_n18(this._uploadFile, this._downloadFile, result);
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
             const result = await this.actor.getCallerUserProfile();
-            return from_candid_opt_n17(this._uploadFile, this._downloadFile, result);
+            return from_candid_opt_n18(this._uploadFile, this._downloadFile, result);
         }
     }
     async getCallerUserRole(): Promise<UserRole> {
         if (this.processError) {
             try {
                 const result = await this.actor.getCallerUserRole();
-                return from_candid_UserRole_n18(this._uploadFile, this._downloadFile, result);
+                return from_candid_UserRole_n19(this._uploadFile, this._downloadFile, result);
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
             const result = await this.actor.getCallerUserRole();
-            return from_candid_UserRole_n18(this._uploadFile, this._downloadFile, result);
+            return from_candid_UserRole_n19(this._uploadFile, this._downloadFile, result);
         }
     }
     async getComments(arg0: string): Promise<Array<PostComment>> {
@@ -526,18 +551,18 @@ export class Backend implements backendInterface {
             return result;
         }
     }
-    async getFeed(): Promise<Array<StudySession>> {
+    async getFeed(): Promise<Array<FeedEntry>> {
         if (this.processError) {
             try {
                 const result = await this.actor.getFeed();
-                return from_candid_vec_n20(this._uploadFile, this._downloadFile, result);
+                return from_candid_vec_n21(this._uploadFile, this._downloadFile, result);
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
             const result = await this.actor.getFeed();
-            return from_candid_vec_n20(this._uploadFile, this._downloadFile, result);
+            return from_candid_vec_n21(this._uploadFile, this._downloadFile, result);
         }
     }
     async getPostLikeCount(arg0: string): Promise<{
@@ -571,7 +596,7 @@ export class Backend implements backendInterface {
             return result;
         }
     }
-    async getStreakLeaderboard(): Promise<Array<UserProfile>> {
+    async getStreakLeaderboard(): Promise<Array<Profile>> {
         if (this.processError) {
             try {
                 const result = await this.actor.getStreakLeaderboard();
@@ -585,21 +610,21 @@ export class Backend implements backendInterface {
             return result;
         }
     }
-    async getUserProfile(arg0: Principal): Promise<UserProfile | null> {
+    async getUserProfile(arg0: Principal): Promise<Profile | null> {
         if (this.processError) {
             try {
                 const result = await this.actor.getUserProfile(arg0);
-                return from_candid_opt_n17(this._uploadFile, this._downloadFile, result);
+                return from_candid_opt_n18(this._uploadFile, this._downloadFile, result);
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
             const result = await this.actor.getUserProfile(arg0);
-            return from_candid_opt_n17(this._uploadFile, this._downloadFile, result);
+            return from_candid_opt_n18(this._uploadFile, this._downloadFile, result);
         }
     }
-    async getWeeklyLeaderboard(): Promise<Array<UserProfile>> {
+    async getWeeklyLeaderboard(): Promise<Array<Profile>> {
         if (this.processError) {
             try {
                 const result = await this.actor.getWeeklyLeaderboard();
@@ -641,7 +666,7 @@ export class Backend implements backendInterface {
             return result;
         }
     }
-    async saveCallerUserProfile(arg0: UserProfile): Promise<void> {
+    async saveCallerUserProfile(arg0: Profile): Promise<void> {
         if (this.processError) {
             try {
                 const result = await this.actor.saveCallerUserProfile(arg0);
@@ -655,17 +680,17 @@ export class Backend implements backendInterface {
             return result;
         }
     }
-    async startSession(arg0: StudySession): Promise<void> {
+    async startSession(arg0: Session): Promise<void> {
         if (this.processError) {
             try {
-                const result = await this.actor.startSession(await to_candid_StudySession_n8(this._uploadFile, this._downloadFile, arg0));
+                const result = await this.actor.startSession(await to_candid_Session_n13(this._uploadFile, this._downloadFile, arg0));
                 return result;
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
-            const result = await this.actor.startSession(await to_candid_StudySession_n8(this._uploadFile, this._downloadFile, arg0));
+            const result = await this.actor.startSession(await to_candid_Session_n13(this._uploadFile, this._downloadFile, arg0));
             return result;
         }
     }
@@ -684,22 +709,25 @@ export class Backend implements backendInterface {
         }
     }
 }
-async function from_candid_ExternalBlob_n16(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _ExternalBlob): Promise<ExternalBlob> {
+async function from_candid_ExternalBlob_n17(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _ExternalBlob): Promise<ExternalBlob> {
     return await _downloadFile(value);
 }
-async function from_candid_StudySession_n14(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _StudySession): Promise<StudySession> {
-    return await from_candid_record_n15(_uploadFile, _downloadFile, value);
+async function from_candid_FeedEntry_n22(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _FeedEntry): Promise<FeedEntry> {
+    return await from_candid_record_n16(_uploadFile, _downloadFile, value);
 }
-function from_candid_UserRole_n18(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _UserRole): UserRole {
-    return from_candid_variant_n19(_uploadFile, _downloadFile, value);
+async function from_candid_Session_n15(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _Session): Promise<Session> {
+    return await from_candid_record_n16(_uploadFile, _downloadFile, value);
+}
+function from_candid_UserRole_n19(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _UserRole): UserRole {
+    return from_candid_variant_n20(_uploadFile, _downloadFile, value);
 }
 function from_candid__CaffeineStorageRefillResult_n4(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: __CaffeineStorageRefillResult): _CaffeineStorageRefillResult {
     return from_candid_record_n5(_uploadFile, _downloadFile, value);
 }
-async function from_candid_opt_n13(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: [] | [_StudySession]): Promise<StudySession | null> {
-    return value.length === 0 ? null : await from_candid_StudySession_n14(_uploadFile, _downloadFile, value[0]);
+async function from_candid_opt_n14(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: [] | [_Session]): Promise<Session | null> {
+    return value.length === 0 ? null : await from_candid_Session_n15(_uploadFile, _downloadFile, value[0]);
 }
-function from_candid_opt_n17(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: [] | [_UserProfile]): UserProfile | null {
+function from_candid_opt_n18(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: [] | [_Profile]): Profile | null {
     return value.length === 0 ? null : value[0];
 }
 function from_candid_opt_n6(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: [] | [boolean]): boolean | null {
@@ -708,7 +736,7 @@ function from_candid_opt_n6(_uploadFile: (file: ExternalBlob) => Promise<Uint8Ar
 function from_candid_opt_n7(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: [] | [bigint]): bigint | null {
     return value.length === 0 ? null : value[0];
 }
-async function from_candid_record_n15(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
+async function from_candid_record_n16(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
     startTime: bigint;
     isCompleted: boolean;
     endTime: bigint;
@@ -734,8 +762,8 @@ async function from_candid_record_n15(_uploadFile: (file: ExternalBlob) => Promi
         subjectName: value.subjectName,
         distractionCount: value.distractionCount,
         elapsedSeconds: value.elapsedSeconds,
-        endPhoto: await from_candid_ExternalBlob_n16(_uploadFile, _downloadFile, value.endPhoto),
-        startPhoto: await from_candid_ExternalBlob_n16(_uploadFile, _downloadFile, value.startPhoto)
+        endPhoto: await from_candid_ExternalBlob_n17(_uploadFile, _downloadFile, value.endPhoto),
+        startPhoto: await from_candid_ExternalBlob_n17(_uploadFile, _downloadFile, value.startPhoto)
     };
 }
 function from_candid_record_n5(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
@@ -750,7 +778,7 @@ function from_candid_record_n5(_uploadFile: (file: ExternalBlob) => Promise<Uint
         topped_up_amount: record_opt_to_undefined(from_candid_opt_n7(_uploadFile, _downloadFile, value.topped_up_amount))
     };
 }
-function from_candid_variant_n19(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
+function from_candid_variant_n20(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
     admin: null;
 } | {
     user: null;
@@ -759,13 +787,16 @@ function from_candid_variant_n19(_uploadFile: (file: ExternalBlob) => Promise<Ui
 }): UserRole {
     return "admin" in value ? UserRole.admin : "user" in value ? UserRole.user : "guest" in value ? UserRole.guest : value;
 }
-async function from_candid_vec_n20(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: Array<_StudySession>): Promise<Array<StudySession>> {
-    return await Promise.all(value.map(async (x)=>await from_candid_StudySession_n14(_uploadFile, _downloadFile, x)));
+async function from_candid_vec_n21(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: Array<_FeedEntry>): Promise<Array<FeedEntry>> {
+    return await Promise.all(value.map(async (x)=>await from_candid_FeedEntry_n22(_uploadFile, _downloadFile, x)));
 }
 async function to_candid_ExternalBlob_n10(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: ExternalBlob): Promise<_ExternalBlob> {
     return await _uploadFile(value);
 }
-async function to_candid_StudySession_n8(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: StudySession): Promise<_StudySession> {
+async function to_candid_FeedEntry_n8(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: FeedEntry): Promise<_FeedEntry> {
+    return await to_candid_record_n9(_uploadFile, _downloadFile, value);
+}
+async function to_candid_Session_n13(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: Session): Promise<_Session> {
     return await to_candid_record_n9(_uploadFile, _downloadFile, value);
 }
 function to_candid_UserRole_n11(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: UserRole): _UserRole {

@@ -67,6 +67,14 @@ function timeAgo(timestamp: number): string {
   return `${diffDay} day${diffDay > 1 ? "s" : ""} ago`;
 }
 
+function bytesToDataURL(bytes: Uint8Array, mimeType = "image/jpeg"): string {
+  let binary = "";
+  for (let i = 0; i < bytes.length; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return `data:${mimeType};base64,${btoa(binary)}`;
+}
+
 async function compressImage(
   file: File,
   maxWidth = 800,
@@ -129,10 +137,7 @@ function CreatePostModal() {
     setSubmitting(true);
     try {
       const compressed = await compressImage(imageFile);
-      const blob = ExternalBlob.fromBytes(
-        compressed as Uint8Array<ArrayBuffer>,
-      );
-      const photoUrl = blob.getDirectURL();
+      const photoUrl = bytesToDataURL(compressed as Uint8Array);
       const post: CommunityPost = {
         postId: `aesthetic-${Date.now()}`,
         userId: profile?.displayName ?? "user",
@@ -753,7 +758,14 @@ export default function CommunityFeed() {
                         </div>
                         <p className="text-sm font-semibold text-foreground mt-0.5">
                           {isSession
-                            ? `${post.userName} completed a ${post.duration} study session 🔥`
+                            ? (() => {
+                                const distractionMatch =
+                                  post.caption?.match(/Distractions:/);
+                                const distractionInfo = distractionMatch
+                                  ? ` (${post.caption!.replace("Distractions: ", "").split(",").length} distractions)`
+                                  : "";
+                                return `${post.userName} completed a ${post.duration} study session 🔥${distractionInfo}`;
+                              })()
                             : `${post.userName} shared their study setup ✨`}
                         </p>
                         {isSession && post.subject && (
